@@ -39,6 +39,7 @@ static unsigned long lastWifiRetry = 0;
 static unsigned long scanResultShownAt = 0;
 static unsigned long qcWaitStartedAt = 0;
 static unsigned long lastQueueFlush = 0;
+static unsigned long lastStatusBar = 0;
 
 // Scan debounce
 static String lastScannedUid;
@@ -180,12 +181,14 @@ static void handleCheckMapping() {
         stationType = info.type;
         storageSaveStationInfo(stationId, lineId, stationType);
         displayReadyScreen(stationId, lineId, stationType);
+        displayStatusBar(wifiIsConnected(), stationId, ntpGetTimeStr());
         ledGreen();
         delay(500);
         ledOff();
         state = STATE_READY;
         lastHeartbeat = millis();
         lastMappingPoll = millis();
+        lastStatusBar = millis();
         Serial.printf("[Main] READY: %s / %s / %s\n",
             stationId.c_str(), lineId.c_str(), stationType.c_str());
     } else {
@@ -238,6 +241,12 @@ static void handleReady() {
                 displayReadyScreen(stationId, lineId, stationType);
             }
         }
+    }
+
+    // Update status bar every 2s
+    if (now - lastStatusBar >= 2000) {
+        lastStatusBar = now;
+        displayStatusBar(wifiIsConnected(), stationId, ntpGetTimeStr());
     }
 
     // Flush offline queue periodically

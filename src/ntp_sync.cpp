@@ -38,3 +38,13 @@ String ntpGetIsoTimestamp() {
     // Fallback: epoch + millis (not ideal but avoids empty string)
     return String("1970-01-01T00:00:00Z");
 }
+
+String ntpGetTimeStr() {
+    struct tm t;
+    if (getLocalTime(&t)) {
+        char buf[6];
+        snprintf(buf, sizeof(buf), "%02d:%02d", t.tm_hour, t.tm_min);
+        return String(buf);
+    }
+    return String("--:--");
+}

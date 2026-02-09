@@ -14,11 +14,18 @@ static TFT_eSPI tft = TFT_eSPI();
 #define C_BLUE     0x001F
 #define C_HEADER   0x1082  // Dark grey header
 
+// Screen tracking to avoid redundant redraws
+enum Screen { SCR_NONE, SCR_BOOT, SCR_CLAIMING, SCR_UNMAPPED, SCR_READY, SCR_SCAN, SCR_QC, SCR_ERROR };
+static Screen currentScreen = SCR_NONE;
+static String currentReadyId;
+static String currentReadyType;
+
 void displayInit() {
     tft.init();
     tft.setRotation(1); // Landscape
     tft.fillScreen(C_BG);
     tft.setTextColor(C_TEXT, C_BG);
+    currentScreen = SCR_NONE;
     Serial.println("[Display] Initialized (320x240 landscape)");
 }
 
@@ -42,6 +49,7 @@ void displayBootScreen(const String& status) {
     tft.setTextColor(C_YELLOW, C_BG);
     tft.drawString(status, LCD_WIDTH / 2, 160);
     tft.setTextColor(C_TEXT, C_BG);
+    currentScreen = SCR_BOOT;
 }
 
 void displayClaimingScreen() {
@@ -52,6 +60,7 @@ void displayClaimingScreen() {
     tft.setTextColor(C_YELLOW, C_BG);
     tft.drawString("Registering with server...", LCD_WIDTH / 2, 120);
     tft.setTextColor(C_TEXT, C_BG);
+    currentScreen = SCR_CLAIMING;
 }
 
 void displayUnmappedScreen(const String& mac) {
@@ -66,9 +75,15 @@ void displayUnmappedScreen(const String& mac) {
     tft.setTextFont(4);
     tft.drawString(mac, LCD_WIDTH / 2, 155);
     tft.setTextColor(C_TEXT, C_BG);
+    currentScreen = SCR_UNMAPPED;
 }
 
 void displayReadyScreen(const String& stationId, const String& lineName, const String& type) {
+    // Skip full redraw if already showing same content
+    if (currentScreen == SCR_READY && currentReadyId == stationId && currentReadyType == type) {
+        return;
+    }
+
     tft.fillScreen(C_BG);
     drawHeader("READY — SCAN TAG");
 
@@ -101,8 +116,12 @@ void displayReadyScreen(const String& stationId, const String& lineName, const S
     tft.setTextDatum(MC_DATUM);
     tft.setTextFont(2);
     tft.setTextColor(C_GREEN, C_BG);
-    tft.drawString("Place RFID tag on reader", LCD_WIDTH / 2, 190);
+    tft.drawString("Place RFID tag on reader", LCD_WIDTH / 2, 170);
     tft.setTextColor(C_TEXT, C_BG);
+
+    currentScreen = SCR_READY;
+    currentReadyId = stationId;
+    currentReadyType = type;
 }
 
 void displayScanResult(const String& rfidUid, const String& eventType, bool success, const String& message) {
@@ -133,6 +152,7 @@ void displayScanResult(const String& rfidUid, const String& eventType, bool succ
     }
 
     tft.setTextColor(C_TEXT, C_BG);
+    currentScreen = SCR_SCAN;
 }
 
 void displayQcButtons(const String& rfidUid) {
@@ -159,6 +179,7 @@ void displayQcButtons(const String& rfidUid) {
     tft.setTextFont(1);
     tft.drawString("Tap to select", LCD_WIDTH / 2, 220);
     tft.setTextColor(C_TEXT, C_BG);
+    currentScreen = SCR_QC;
 }
 
 void displayError(const String& message) {
@@ -169,9 +190,13 @@ void displayError(const String& message) {
     tft.setTextColor(C_RED, C_BG);
     tft.drawString(message, LCD_WIDTH / 2, 120);
     tft.setTextColor(C_TEXT, C_BG);
+    currentScreen = SCR_ERROR;
 }
 
 void displayStatusBar(bool wifiOk, const String& stationId, const String& timeStr) {
+    // Only draw on ready screen
+    if (currentScreen != SCR_READY) return;
+
     tft.fillRect(0, LCD_HEIGHT - 20, LCD_WIDTH, 20, C_HEADER);
     tft.setTextFont(1);
     tft.setTextColor(wifiOk ? C_GREEN : C_RED, C_HEADER);
@@ -188,4 +213,5 @@ void displayStatusBar(bool wifiOk, const String& stationId, const String& timeSt
 
 void displayClear() {
     tft.fillScreen(C_BG);
+    currentScreen = SCR_NONE;
 }
