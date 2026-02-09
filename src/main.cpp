@@ -9,6 +9,7 @@
 #include "touch.h"
 #include "led_buzzer.h"
 #include "event_queue.h"
+#include "ota.h"
 
 // credentials.h provides FACTORY_CODE
 #include "credentials.h"
@@ -130,6 +131,11 @@ static void handleBoot() {
 
     displayBootScreen("Initializing RFID...");
     rfidInit();
+
+    // Start OTA
+    String otaHostname = "rfid-" + mac;
+    otaHostname.replace(":", "");
+    otaInit(otaHostname);
 
     // Load saved token
     token = storageLoadToken();
@@ -409,6 +415,8 @@ void setup() {
 }
 
 void loop() {
+    otaHandle();
+
     switch (state) {
         case STATE_BOOT:          handleBoot(); break;
         case STATE_CLAIMING:      handleClaiming(); break;
