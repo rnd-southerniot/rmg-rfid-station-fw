@@ -3,12 +3,19 @@
 #include <SPI.h>
 #include <MFRC522.h>
 
-static SPIClass hspi(HSPI);
+// The MFRC522 library uses the global SPI object.
+// On ESP32, LCD uses VSPI (default) and RFID uses HSPI.
+// We init HSPI on custom pins and swap SPI to point to it before MFRC522 init.
+// After init, the MFRC522 continues using SPI (which is our HSPI instance).
+
 static MFRC522 mfrc522(RFID_SS, RFID_RST);
 
 void rfidInit() {
-    hspi.begin(RFID_SCK, RFID_MISO, RFID_MOSI, RFID_SS);
-    mfrc522.PCD_Init(RFID_SS, RFID_RST, &hspi);
+    // Initialize SPI on HSPI pins for RFID
+    SPI.end();
+    SPI.begin(RFID_SCK, RFID_MISO, RFID_MOSI, RFID_SS);
+
+    mfrc522.PCD_Init();
     delay(10);
 
     byte ver = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
@@ -17,7 +24,7 @@ void rfidInit() {
     if (ver == 0x00 || ver == 0xFF) {
         Serial.println("[RFID] WARNING: Reader not detected!");
     } else {
-        Serial.println("[RFID] Reader initialized on HSPI");
+        Serial.println("[RFID] Reader initialized");
     }
 }
 

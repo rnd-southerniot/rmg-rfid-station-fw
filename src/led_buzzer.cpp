@@ -7,10 +7,12 @@ static void setLed(bool r, bool g, bool b) {
     digitalWrite(LED_B_PIN, b ? HIGH : LOW);
 }
 
+#define BUZZER_CHANNEL 0
+
 static void toneMs(int freq, int ms) {
-    ledcWriteTone(0, freq);
+    ledcWriteTone(BUZZER_CHANNEL, freq);
     delay(ms);
-    ledcWriteTone(0, 0);
+    ledcWriteTone(BUZZER_CHANNEL, 0);
 }
 
 void ledBuzzerInit() {
@@ -19,8 +21,9 @@ void ledBuzzerInit() {
     pinMode(LED_B_PIN, OUTPUT);
     ledOff();
 
-    ledcAttach(BUZZER_PIN, 2000, 8);
-    ledcWriteTone(0, 0);
+    ledcSetup(BUZZER_CHANNEL, 2000, 8);
+    ledcAttachPin(BUZZER_PIN, BUZZER_CHANNEL);
+    ledcWriteTone(BUZZER_CHANNEL, 0);
 }
 
 void ledOff()    { setLed(false, false, false); }
