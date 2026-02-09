@@ -45,3 +45,7 @@ String rfidReadUid() {
 
     return uid;
 }
+
+uint8_t rfidGetVersion() {
+    return mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
+}

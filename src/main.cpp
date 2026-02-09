@@ -111,6 +111,34 @@ static void handleBoot() {
     storageInit();
     eventQueueInit();
 
+    // ── Power-on self-test ──
+    displayBootScreen("Self-test...");
+
+    // LED test: flash R, G, B
+    ledRed(); delay(200); ledGreen(); delay(200); ledBlue(); delay(200); ledOff();
+
+    // Buzzer test
+    beepSuccess();
+
+    // Init RFID for POST check
+    rfidInit();
+    uint8_t rfidVer = rfidGetVersion();
+    bool rfidOk = (rfidVer != 0x00 && rfidVer != 0xFF);
+    bool touchOk = touchIsConnected();
+
+    // Show POST results
+    displayPostScreen();
+    displayPostResult(0, "LCD", true);
+    displayPostResult(1, "LED (R/G/B)", true);
+    displayPostResult(2, "Buzzer", true);
+    displayPostResult(3, "RFID (MFRC522)", rfidOk);
+    displayPostResult(4, "Touch (FT6336)", touchOk);
+
+    Serial.printf("[POST] LCD=OK LED=OK Buzzer=OK RFID=%s Touch=%s\n",
+        rfidOk ? "OK" : "FAIL", touchOk ? "OK" : "FAIL");
+
+    delay(1500);
+
     displayBootScreen("Connecting to WiFi...");
     ledBlue();
 
@@ -128,9 +156,6 @@ static void handleBoot() {
 
     displayBootScreen("Syncing time...");
     ntpInit();
-
-    displayBootScreen("Initializing RFID...");
-    rfidInit();
 
     // Start OTA
     String otaHostname = "rfid-" + mac;

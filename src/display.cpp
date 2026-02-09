@@ -193,6 +193,24 @@ void displayError(const String& message) {
     currentScreen = SCR_ERROR;
 }
 
+void displayPostScreen() {
+    tft.fillScreen(C_BG);
+    drawHeader("SELF-TEST");
+    currentScreen = SCR_BOOT;
+}
+
+void displayPostResult(int line, const String& label, bool pass) {
+    int y = 40 + line * 28;
+    tft.setTextDatum(ML_DATUM);
+    tft.setTextFont(2);
+    tft.setTextColor(C_TEXT, C_BG);
+    tft.drawString(label, 20, y);
+    tft.setTextDatum(MR_DATUM);
+    tft.setTextColor(pass ? C_GREEN : C_RED, C_BG);
+    tft.drawString(pass ? "OK" : "FAIL", LCD_WIDTH - 20, y);
+    tft.setTextColor(C_TEXT, C_BG);
+}
+
 void displayStatusBar(bool wifiOk, const String& stationId, const String& timeStr) {
     // Only draw on ready screen
     if (currentScreen != SCR_READY) return;

@@ -31,6 +31,11 @@ void touchInit() {
     }
 }
 
+bool touchIsConnected() {
+    Wire.beginTransmission(TOUCH_ADDR);
+    return Wire.endTransmission() == 0;
+}
+
 bool touchGetPoint(int& x, int& y) {
     Wire.beginTransmission(TOUCH_ADDR);
     Wire.write(FT_REG_NUM_TOUCHES);

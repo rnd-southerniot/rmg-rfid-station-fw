@@ -2,6 +2,7 @@
 #include <Arduino.h>
 
 void touchInit();
+bool touchIsConnected();  // Ping I2C address
 bool touchGetPoint(int& x, int& y);
 
 // QC button regions (landscape 320x240)
