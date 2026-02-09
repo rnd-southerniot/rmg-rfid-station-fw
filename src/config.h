@@ -19,7 +19,8 @@
 #define RFID_RST    -1   // Not connected
 
 // ── Buzzer (PWM) ──────────────────────────────────────────
-#define BUZZER_PIN  33
+#define BUZZER_PIN      33
+#define BUZZER_FREQ_HZ  2700  // Resonant frequency for piezo buzzer
 
 // ── RGB LED (active low / common cathode) ─────────────────
 #define LED_R_PIN   32

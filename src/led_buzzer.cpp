@@ -21,7 +21,7 @@ void ledBuzzerInit() {
     pinMode(LED_B_PIN, OUTPUT);
     ledOff();
 
-    ledcSetup(BUZZER_CHANNEL, 2000, 8);
+    ledcSetup(BUZZER_CHANNEL, BUZZER_FREQ_HZ, 8);
     ledcAttachPin(BUZZER_PIN, BUZZER_CHANNEL);
     ledcWriteTone(BUZZER_CHANNEL, 0);
 }
@@ -33,15 +33,15 @@ void ledYellow() { setLed(true, true, false); }
 void ledBlue()   { setLed(false, false, true); }
 
 void beepSuccess() {
-    toneMs(2000, 100);
+    toneMs(BUZZER_FREQ_HZ, 100);
 }
 
 void beepWarning() {
-    toneMs(1000, 150);
+    toneMs(BUZZER_FREQ_HZ * 3 / 4, 150);
     delay(80);
-    toneMs(1000, 150);
+    toneMs(BUZZER_FREQ_HZ * 3 / 4, 150);
 }
 
 void beepError() {
-    toneMs(500, 300);
+    toneMs(BUZZER_FREQ_HZ / 2, 300);
 }
