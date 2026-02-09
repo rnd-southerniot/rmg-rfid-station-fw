@@ -1,5 +1,6 @@
 #include "api_client.h"
 #include "config.h"
+#include "log.h"
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
@@ -28,7 +29,7 @@ ClaimResult apiClaim(const String& mac, const String& factoryCode) {
     String body;
     serializeJson(doc, body);
 
-    Serial.printf("[API] POST %s\n", url.c_str());
+    LOG_D("[API] POST %s\n", url.c_str());
     int code = http.POST(body);
 
     if (code == 200) {
@@ -43,11 +44,11 @@ ClaimResult apiClaim(const String& mac, const String& factoryCode) {
             ? resp["station"]["line_id"].as<String>() : "";
         result.type = resp["station"]["type"].is<const char*>()
             ? resp["station"]["type"].as<String>() : "";
-        Serial.printf("[API] Claimed OK, token=%s...\n", result.token.substring(0, 12).c_str());
+        LOG_I("[API] Claimed OK, token=%s...\n", result.token.substring(0, 12).c_str());
     } else {
-        Serial.printf("[API] Claim failed: HTTP %d\n", code);
+        LOG_E("[API] Claim failed: HTTP %d\n", code);
         if (code > 0) {
-            Serial.println(http.getString());
+            LOG_E("[API] %s\n", http.getString().c_str());
         }
     }
 
@@ -63,7 +64,7 @@ StationInfo apiGetMe(const String& token) {
     http.begin(url);
     http.addHeader("Authorization", "Bearer " + token);
 
-    Serial.printf("[API] GET %s\n", url.c_str());
+    LOG_D("[API] GET %s\n", url.c_str());
     int code = http.GET();
 
     if (code == 200) {
@@ -81,10 +82,10 @@ StationInfo apiGetMe(const String& token) {
         if (hasType)      info.type = resp["station"]["type"].as<String>();
 
         info.mapped = hasStationId && hasLineId && hasType;
-        Serial.printf("[API] /me: mapped=%d station_id=%s type=%s\n",
+        LOG_I("[API] /me: mapped=%d station_id=%s type=%s\n",
             info.mapped, info.stationId.c_str(), info.type.c_str());
     } else {
-        Serial.printf("[API] /me failed: HTTP %d\n", code);
+        LOG_E("[API] /me failed: HTTP %d\n", code);
     }
 
     http.end();
@@ -107,7 +108,7 @@ bool apiHeartbeat(const String& token, const String& ts) {
     int code = http.POST(body);
     bool ok = (code == 200);
     if (!ok) {
-        Serial.printf("[API] Heartbeat failed: HTTP %d\n", code);
+        LOG_W("[API] Heartbeat failed: HTTP %d\n", code);
     }
 
     http.end();
@@ -134,7 +135,7 @@ EventResult apiPostEvent(const String& token, const String& eventId, const Strin
     String body;
     serializeJson(doc, body);
 
-    Serial.printf("[API] POST event: %s %s %s\n", rfidUid.c_str(), eventType.c_str(), eventId.c_str());
+    LOG_I("[API] POST event: %s %s %s\n", rfidUid.c_str(), eventType.c_str(), eventId.c_str());
     int code = http.POST(body);
 
     EventResult result;
@@ -153,10 +154,10 @@ EventResult apiPostEvent(const String& token, const String& eventId, const Strin
         }
     } else if (code == 400) {
         result = EVENT_INVALID;
-        Serial.printf("[API] Event invalid: %s\n", http.getString().c_str());
+        LOG_E("[API] Event invalid: %s\n", http.getString().c_str());
     } else {
         result = EVENT_NETWORK_ERROR;
-        Serial.printf("[API] Event network error: HTTP %d\n", code);
+        LOG_E("[API] Event network error: HTTP %d\n", code);
     }
 
     http.end();

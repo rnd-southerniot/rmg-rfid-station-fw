@@ -1,16 +1,18 @@
 #include "storage.h"
+#include "config.h"
+#include "log.h"
 #include <Preferences.h>
 
 static Preferences prefs;
 
 void storageInit() {
     prefs.begin("rfid-station", false);
-    Serial.println("[Storage] NVS initialized");
+    LOG_I("[Storage] NVS initialized\n");
 }
 
 void storageSaveToken(const String& token) {
     prefs.putString("token", token);
-    Serial.println("[Storage] Token saved");
+    LOG_D("[Storage] Token saved\n");
 }
 
 String storageLoadToken() {
@@ -19,7 +21,7 @@ String storageLoadToken() {
 
 void storageClearToken() {
     prefs.remove("token");
-    Serial.println("[Storage] Token cleared");
+    LOG_W("[Storage] Token cleared\n");
 }
 
 void storageSaveStationInfo(const String& stationId, const String& lineId, const String& type) {

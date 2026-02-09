@@ -1,5 +1,6 @@
 #include "wifi_manager.h"
 #include "config.h"
+#include "log.h"
 #include <WiFi.h>
 
 // credentials.h provides WIFI_SSID and WIFI_PASSWORD
@@ -9,18 +10,18 @@ void wifiInit() {
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-    Serial.print("[WiFi] Connecting");
+    LOG_I("[WiFi] Connecting");
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 40) {
         delay(500);
-        Serial.print(".");
+        LOG_I(".");
         attempts++;
     }
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.printf("\n[WiFi] Connected: %s\n", WiFi.localIP().toString().c_str());
+        LOG_I("\n[WiFi] Connected: %s\n", WiFi.localIP().toString().c_str());
     } else {
-        Serial.println("\n[WiFi] Connection failed, will retry...");
+        LOG_E("\n[WiFi] Connection failed, will retry...\n");
     }
 }
 
@@ -30,7 +31,7 @@ bool wifiIsConnected() {
 
 void wifiReconnect() {
     if (WiFi.status() == WL_CONNECTED) return;
-    Serial.println("[WiFi] Reconnecting...");
+    LOG_D("[WiFi] Reconnecting...\n");
     WiFi.disconnect();
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }

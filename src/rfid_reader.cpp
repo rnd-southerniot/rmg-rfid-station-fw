@@ -1,5 +1,6 @@
 #include "rfid_reader.h"
 #include "config.h"
+#include "log.h"
 #include <SPI.h>
 #include <MFRC522.h>
 
@@ -19,12 +20,12 @@ void rfidInit() {
     delay(10);
 
     byte ver = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
-    Serial.printf("[RFID] MFRC522 version: 0x%02X\n", ver);
+    LOG_I("[RFID] MFRC522 version: 0x%02X\n", ver);
 
     if (ver == 0x00 || ver == 0xFF) {
-        Serial.println("[RFID] WARNING: Reader not detected!");
+        LOG_W("[RFID] WARNING: Reader not detected!\n");
     } else {
-        Serial.println("[RFID] Reader initialized");
+        LOG_I("[RFID] Reader initialized\n");
     }
 }
 

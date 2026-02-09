@@ -1,5 +1,6 @@
 #include "touch.h"
 #include "config.h"
+#include "log.h"
 #include <Wire.h>
 
 // FT6336 register addresses
@@ -25,9 +26,9 @@ void touchInit() {
     Wire.beginTransmission(TOUCH_ADDR);
     uint8_t err = Wire.endTransmission();
     if (err == 0) {
-        Serial.println("[Touch] FT6336 initialized");
+        LOG_I("[Touch] FT6336 initialized\n");
     } else {
-        Serial.printf("[Touch] FT6336 not found (error %d)\n", err);
+        LOG_E("[Touch] FT6336 not found (error %d)\n", err);
     }
 }
 

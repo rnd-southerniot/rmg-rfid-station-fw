@@ -1,5 +1,6 @@
 #include "display.h"
 #include "config.h"
+#include "log.h"
 #include <TFT_eSPI.h>
 
 static TFT_eSPI tft = TFT_eSPI();
@@ -26,7 +27,7 @@ void displayInit() {
     tft.fillScreen(C_BG);
     tft.setTextColor(C_TEXT, C_BG);
     currentScreen = SCR_NONE;
-    Serial.println("[Display] Initialized (320x240 landscape)");
+    LOG_I("[Display] Initialized (320x240 landscape)\n");
 }
 
 static void drawHeader(const String& title) {

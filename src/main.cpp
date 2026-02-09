@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "config.h"
+#include "log.h"
 #include "wifi_manager.h"
 #include "ntp_sync.h"
 #include "storage.h"
@@ -66,7 +67,7 @@ static void flushEventQueue() {
     int count = eventQueueSize();
     if (count == 0) return;
 
-    Serial.printf("[Main] Flushing %d queued events\n", count);
+    LOG_I("[Main] Flushing %d queued events\n", count);
     int flushed = 0;
 
     while (flushed < count) {
@@ -76,10 +77,10 @@ static void flushEventQueue() {
         EventResult res = apiPostEvent(token, evt.eventId, evt.ts, evt.rfidUid, evt.eventType);
         if (res == EVENT_OK) {
             flushed++;
-            Serial.printf("[Main] Flushed queued event: %s\n", evt.eventId.c_str());
+            LOG_D("[Main] Flushed queued event: %s\n", evt.eventId.c_str());
         } else if (res == EVENT_UNAUTHORIZED) {
             // Need to re-claim, stop flushing
-            Serial.println("[Main] Queue flush: unauthorized, need re-claim");
+            LOG_W("[Main] Queue flush: unauthorized, need re-claim\n");
             state = STATE_CLAIMING;
             break;
         } else if (res == EVENT_NETWORK_ERROR) {
@@ -96,13 +97,13 @@ static void flushEventQueue() {
         }
     }
 
-    Serial.printf("[Main] Queue flush done, %d remaining\n", eventQueueSize());
+    LOG_I("[Main] Queue flush done, %d remaining\n", eventQueueSize());
 }
 
 // ── State handlers ────────────────────────────────────────
 
 static void handleBoot() {
-    Serial.println("\n[Main] === RMG RFID Station Firmware v" FW_VERSION " ===");
+    LOG_I("\n[Main] === RMG RFID Station Firmware v" FW_VERSION " ===\n");
 
     // Initialize peripherals
     displayInit();
@@ -134,7 +135,7 @@ static void handleBoot() {
     displayPostResult(3, "RFID (MFRC522)", rfidOk);
     displayPostResult(4, "Touch (FT6336)", touchOk);
 
-    Serial.printf("[POST] LCD=OK LED=OK Buzzer=OK RFID=%s Touch=%s\n",
+    LOG_I("[POST] LCD=OK LED=OK Buzzer=OK RFID=%s Touch=%s\n",
         rfidOk ? "OK" : "FAIL", touchOk ? "OK" : "FAIL");
 
     delay(1500);
@@ -152,7 +153,7 @@ static void handleBoot() {
     }
 
     mac = wifiGetMac();
-    Serial.printf("[Main] MAC: %s\n", mac.c_str());
+    LOG_I("[Main] MAC: %s\n", mac.c_str());
 
     displayBootScreen("Syncing time...");
     ntpInit();
@@ -167,7 +168,7 @@ static void handleBoot() {
     if (token.isEmpty()) {
         state = STATE_CLAIMING;
     } else {
-        Serial.println("[Main] Loaded saved token");
+        LOG_D("[Main] Loaded saved token\n");
         state = STATE_CHECK_MAPPING;
     }
 
@@ -183,7 +184,7 @@ static void handleClaiming() {
     if (result.ok) {
         token = result.token;
         storageSaveToken(token);
-        Serial.printf("[Main] Claimed, station PK: %s\n", result.stationPk.c_str());
+        LOG_I("[Main] Claimed, station PK: %s\n", result.stationPk.c_str());
         ledOff();
         state = STATE_CHECK_MAPPING;
     } else {
@@ -199,7 +200,7 @@ static void handleCheckMapping() {
     StationInfo info = apiGetMe(token);
 
     if (!info.ok) {
-        Serial.println("[Main] /me failed, might need re-claim");
+        LOG_W("[Main] /me failed, might need re-claim\n");
         storageClearToken();
         token = "";
         state = STATE_CLAIMING;
@@ -220,7 +221,7 @@ static void handleCheckMapping() {
         lastHeartbeat = millis();
         lastMappingPoll = millis();
         lastStatusBar = millis();
-        Serial.printf("[Main] READY: %s / %s / %s\n",
+        LOG_I("[Main] READY: %s / %s / %s\n",
             stationId.c_str(), lineId.c_str(), stationType.c_str());
     } else {
         displayUnmappedScreen(mac);
@@ -254,7 +255,7 @@ static void handleReady() {
         lastHeartbeat = now;
         String ts = ntpGetIsoTimestamp();
         if (!apiHeartbeat(token, ts)) {
-            Serial.println("[Main] Heartbeat failed");
+            LOG_W("[Main] Heartbeat failed\n");
         }
     }
 
@@ -298,7 +299,7 @@ static void handleReady() {
         lastScannedUid = uid;
         lastScanTime = now;
 
-        Serial.printf("[Main] Scanned UID: %s\n", uid.c_str());
+        LOG_I("[Main] Scanned UID: %s\n", uid.c_str());
 
         if (stationType == "qc") {
             // QC station: show PASS/FAIL buttons
@@ -382,7 +383,7 @@ static void handleQcWait() {
 
     // Timeout
     if (now - qcWaitStartedAt >= QC_TOUCH_TIMEOUT_MS) {
-        Serial.println("[Main] QC timeout");
+        LOG_I("[Main] QC timeout\n");
         displayReadyScreen(stationId, lineId, stationType);
         state = STATE_READY;
         return;
@@ -413,7 +414,7 @@ static void handleReconnecting() {
         wifiReconnect();
 
         if (wifiIsConnected()) {
-            Serial.println("[Main] WiFi reconnected");
+            LOG_I("[Main] WiFi reconnected\n");
             ledOff();
 
             // Flush queued events

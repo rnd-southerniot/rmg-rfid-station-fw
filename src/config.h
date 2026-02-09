@@ -36,5 +36,9 @@
 #define WIFI_RETRY_INTERVAL_MS   5000    // 5s between WiFi retries
 #define NTP_SERVER               "pool.ntp.org"
 
+// ── Logging ──────────────────────────────────────────────
+// 0=ERROR, 1=WARN, 2=INFO, 3=DEBUG
+#define LOG_LEVEL   2  // INFO
+
 // ── Firmware version ──────────────────────────────────────
 #define FW_VERSION  "0.1.0"

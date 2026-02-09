@@ -1,4 +1,6 @@
 #include "event_queue.h"
+#include "config.h"
+#include "log.h"
 #include <Preferences.h>
 
 // Simple circular buffer stored in NVS
@@ -15,7 +17,7 @@ void eventQueueInit() {
     qHead = qPrefs.getInt("head", 0);
     qTail = qPrefs.getInt("tail", 0);
     qCount = qPrefs.getInt("count", 0);
-    Serial.printf("[Queue] Initialized: %d events pending\n", qCount);
+    LOG_I("[Queue] Initialized: %d events pending\n", qCount);
 }
 
 bool eventQueuePush(const String& eventId, const String& ts,
@@ -36,7 +38,7 @@ bool eventQueuePush(const String& eventId, const String& ts,
     qPrefs.putInt("head", qHead);
     qPrefs.putInt("count", qCount);
 
-    Serial.printf("[Queue] Pushed event, queue size: %d\n", qCount);
+    LOG_I("[Queue] Pushed event, queue size: %d\n", qCount);
     return true;
 }
 
@@ -84,5 +86,5 @@ void eventQueueClear() {
     qPrefs.putInt("head", 0);
     qPrefs.putInt("tail", 0);
     qPrefs.putInt("count", 0);
-    Serial.println("[Queue] Cleared");
+    LOG_I("[Queue] Cleared\n");
 }
