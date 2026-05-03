@@ -23,7 +23,7 @@ static String currentReadyType;
 
 void displayInit() {
     tft.init();
-    tft.setRotation(1); // Landscape
+    tft.setRotation(3); // Landscape, flipped 180° (PCB mounting orientation)
     tft.fillScreen(C_BG);
     tft.setTextColor(C_TEXT, C_BG);
     currentScreen = SCR_NONE;

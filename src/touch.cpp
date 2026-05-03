@@ -56,12 +56,11 @@ bool touchGetPoint(int& x, int& y) {
     int rawX = ((xh & 0x0F) << 8) | xl;
     int rawY = ((yh & 0x0F) << 8) | yl;
 
-    // Transform to landscape coordinates (320x240)
-    // Based on calibration data from reference:
-    // Portrait raw (x,y) → landscape screen (sx,sy)
-    // The touch controller reports in portrait orientation
-    x = rawY;                    // Portrait Y → Landscape X
-    y = LCD_HEIGHT - 1 - rawX;   // Portrait X → Landscape Y (inverted)
+    // Transform to landscape-flipped (rotation 3) coordinates (320x240)
+    // Touch controller reports in portrait. Display is rotated 180° from
+    // rotation=1, so both axes are inverted relative to the old mapping.
+    x = LCD_WIDTH - 1 - rawY;    // Portrait Y → Landscape X (inverted)
+    y = rawX;                    // Portrait X → Landscape Y
 
     // Clamp
     if (x < 0) x = 0;
