@@ -10,3 +10,9 @@ void storageSaveStationInfo(const String& stationId, const String& lineId, const
 String storageLoadStationId();
 String storageLoadLineId();
 String storageLoadType();
+
+// Operator JWT (issued by /auth/login). Persisted across reboots so the
+// operator does not have to re-tap their badge on every power cycle.
+void   storageSaveJwt(const String& jwt);
+String storageLoadJwt();
+void   storageClearJwt();

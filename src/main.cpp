@@ -21,6 +21,7 @@ enum State {
     STATE_CLAIMING,
     STATE_CHECK_MAPPING,
     STATE_UNMAPPED,
+    STATE_LOGIN,
     STATE_READY,
     STATE_SCANNING,
     STATE_QC_WAIT,
@@ -28,11 +29,13 @@ enum State {
 };
 
 static State state = STATE_BOOT;
-static String token;
+static String token;          // station bearer
+static String userJwt;        // operator JWT from /auth/login
 static String stationId;
 static String lineId;
 static String stationType;
 static String mac;
+static unsigned long lastUserActivityAt = 0; // for inactivity timeout
 
 // Timers
 static unsigned long lastHeartbeat = 0;
@@ -74,13 +77,21 @@ static void flushEventQueue() {
         QueuedEvent evt;
         if (!eventQueuePop(evt)) break;
 
-        EventResult res = apiPostEvent(token, evt.eventId, evt.ts, evt.rfidUid, evt.eventType);
-        if (res == EVENT_OK) {
+        EventResult res = apiPostEvent(token, userJwt, evt.eventId, evt.ts, evt.rfidUid, evt.eventType);
+        if (res == EVENT_RECORDED || res == EVENT_REGISTERED) {
             flushed++;
             LOG_D("[Main] Flushed queued event: %s\n", evt.eventId.c_str());
-        } else if (res == EVENT_UNAUTHORIZED) {
+        } else if (res == EVENT_LOGOUT || res == EVENT_USER_TOKEN_INVALID) {
+            // Operator session no longer valid — re-queue and force re-login
+            eventQueuePush(evt.eventId, evt.ts, evt.rfidUid, evt.eventType);
+            LOG_W("[Main] Queue flush: user session invalid, stop flushing\n");
+            storageClearJwt();
+            userJwt = "";
+            state = STATE_LOGIN;
+            break;
+        } else if (res == EVENT_STATION_UNAUTHORIZED) {
             // Need to re-claim, stop flushing
-            LOG_W("[Main] Queue flush: unauthorized, need re-claim\n");
+            LOG_W("[Main] Queue flush: station unauthorized, need re-claim\n");
             state = STATE_CLAIMING;
             break;
         } else if (res == EVENT_NETWORK_ERROR) {
@@ -163,12 +174,17 @@ static void handleBoot() {
     otaHostname.replace(":", "");
     otaInit(otaHostname);
 
-    // Load saved token
+    // Load saved tokens. JWT is loaded eagerly but its validity is only
+    // verified lazily on the next /events POST — saves a probe round trip.
     token = storageLoadToken();
+    userJwt = storageLoadJwt();
+    if (!userJwt.isEmpty()) {
+        LOG_D("[Main] Loaded saved user JWT (%u chars)\n", (unsigned)userJwt.length());
+    }
     if (token.isEmpty()) {
         state = STATE_CLAIMING;
     } else {
-        LOG_D("[Main] Loaded saved token\n");
+        LOG_D("[Main] Loaded saved station token\n");
         state = STATE_CHECK_MAPPING;
     }
 
@@ -212,17 +228,31 @@ static void handleCheckMapping() {
         lineId = info.lineId;
         stationType = info.type;
         storageSaveStationInfo(stationId, lineId, stationType);
-        displayReadyScreen(stationId, lineId, stationType);
-        displayStatusBar(wifiIsConnected(), stationId, ntpGetTimeStr());
-        ledGreen();
-        delay(500);
-        ledOff();
-        state = STATE_READY;
-        lastHeartbeat = millis();
-        lastMappingPoll = millis();
-        lastStatusBar = millis();
-        LOG_I("[Main] READY: %s / %s / %s\n",
-            stationId.c_str(), lineId.c_str(), stationType.c_str());
+
+        if (userJwt.isEmpty()) {
+            // No operator session — go to login screen
+            displayLoginScreen(stationId);
+            ledBlue();
+            state = STATE_LOGIN;
+            lastHeartbeat = millis();
+            lastMappingPoll = millis();
+            lastStatusBar = millis();
+            LOG_I("[Main] LOGIN: %s / %s / %s (no JWT)\n",
+                stationId.c_str(), lineId.c_str(), stationType.c_str());
+        } else {
+            displayReadyScreen(stationId, lineId, stationType);
+            displayStatusBar(wifiIsConnected(), stationId, ntpGetTimeStr());
+            ledGreen();
+            delay(500);
+            ledOff();
+            state = STATE_READY;
+            lastHeartbeat = millis();
+            lastMappingPoll = millis();
+            lastStatusBar = millis();
+            lastUserActivityAt = millis();
+            LOG_I("[Main] READY: %s / %s / %s (logged in)\n",
+                stationId.c_str(), lineId.c_str(), stationType.c_str());
+        }
     } else {
         displayUnmappedScreen(mac);
         ledYellow();
@@ -241,12 +271,109 @@ static void handleUnmapped() {
 
 static String pendingRfidUid;
 
+static void handleLogin() {
+    unsigned long now = millis();
+
+    if (!wifiIsConnected()) {
+        state = STATE_RECONNECTING;
+        return;
+    }
+
+    // Keep the login screen up. No heartbeat skipping — station heartbeat
+    // does not require user auth, so keep it running so the device stays
+    // visible to the admin UI even when nobody is logged in.
+    if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
+        lastHeartbeat = now;
+        String ts = ntpGetIsoTimestamp();
+        if (!apiHeartbeat(token, ts)) {
+            LOG_W("[Main] Heartbeat failed (login screen)\n");
+        }
+    }
+
+    // Re-paint login screen periodically so status bar stays fresh.
+    if (now - lastStatusBar >= 2000) {
+        lastStatusBar = now;
+        displayStatusBar(wifiIsConnected(), stationId, ntpGetTimeStr());
+    }
+
+    // Wait for badge tap
+    if (!rfidCardPresent()) return;
+
+    String uid = rfidReadUid();
+    if (uid.isEmpty()) return;
+
+    if (uid == lastScannedUid && (now - lastScanTime) < SCAN_DEBOUNCE_MS) return;
+    lastScannedUid = uid;
+    lastScanTime = now;
+
+    LOG_I("[Main] Login attempt with UID %s\n", uid.c_str());
+    LoginResult lr = apiLogin(uid);
+
+    switch (lr.status) {
+        case LOGIN_OK:
+            userJwt = lr.token;
+            storageSaveJwt(userJwt);
+            beepSuccess();
+            ledGreen();
+            displayScanResult(uid, "LOGIN", true, "Logged In");
+            scanResultShownAt = now;
+            // After result shown, transition to ready (handled in handleScanning)
+            state = STATE_SCANNING;
+            // After scanning result display ends, handleScanning falls back to
+            // READY only if we are logged in; mark JWT before that so the
+            // transition picks the right state.
+            lastUserActivityAt = now;
+            break;
+
+        case LOGIN_INVALID_CARD:
+            beepError();
+            ledRed();
+            displayScanResult(uid, "LOGIN", false, "Invalid Card");
+            scanResultShownAt = now;
+            state = STATE_SCANNING;
+            break;
+
+        case LOGIN_BAD_REQUEST:
+            beepError();
+            ledRed();
+            displayScanResult(uid, "LOGIN", false, "Bad Request");
+            scanResultShownAt = now;
+            state = STATE_SCANNING;
+            break;
+
+        case LOGIN_NETWORK_ERROR:
+        default:
+            beepWarning();
+            ledYellow();
+            displayScanResult(uid, "LOGIN", false, "Network Error");
+            scanResultShownAt = now;
+            state = STATE_SCANNING;
+            break;
+    }
+}
+
 static void handleReady() {
     unsigned long now = millis();
 
     // Check WiFi
     if (!wifiIsConnected()) {
         state = STATE_RECONNECTING;
+        return;
+    }
+
+    // Inactivity logout: if no scan activity for INACTIVITY_TIMEOUT_MS,
+    // clear the JWT and return to login screen. 0 disables.
+    if (INACTIVITY_TIMEOUT_MS > 0 && !userJwt.isEmpty()
+        && (now - lastUserActivityAt) >= INACTIVITY_TIMEOUT_MS) {
+        LOG_W("[Main] Inactivity timeout — logging out\n");
+        storageClearJwt();
+        userJwt = "";
+        beepWarning();
+        ledYellow();
+        delay(200);
+        ledOff();
+        displayLoginScreen(stationId);
+        state = STATE_LOGIN;
         return;
     }
 
@@ -301,6 +428,8 @@ static void handleReady() {
 
         LOG_I("[Main] Scanned UID: %s\n", uid.c_str());
 
+        lastUserActivityAt = now;
+
         if (stationType == "qc") {
             // QC station: show PASS/FAIL buttons
             pendingRfidUid = uid;
@@ -313,7 +442,7 @@ static void handleReady() {
             String eventId = generateEventId();
             String ts = ntpGetIsoTimestamp();
 
-            EventResult res = apiPostEvent(token, eventId, ts, uid, "COMPLETE");
+            EventResult res = apiPostEvent(token, userJwt, eventId, ts, uid, "COMPLETE");
             handleEventResult(uid, "COMPLETE", res, eventId, ts);
         }
     }
@@ -322,15 +451,31 @@ static void handleReady() {
 static void handleEventResult(const String& uid, const String& eventType,
                                EventResult res, const String& eventId, const String& ts) {
     switch (res) {
-        case EVENT_OK:
+        case EVENT_RECORDED:
             displayScanResult(uid, eventType, true, "OK");
             ledGreen();
             beepSuccess();
             break;
-        case EVENT_UNKNOWN_BUNDLE:
-            displayScanResult(uid, eventType, false, "Unknown Tag");
+        case EVENT_REGISTERED:
+            displayScanResult(uid, eventType, true, "RFID Registered");
             ledYellow();
             beepWarning();
+            break;
+        case EVENT_LOGOUT:
+            displayScanResult(uid, eventType, true, "Logged Out");
+            ledBlue();
+            beepSuccess();
+            storageClearJwt();
+            userJwt = "";
+            // handleScanning will route to STATE_LOGIN once result times out.
+            break;
+        case EVENT_USER_TOKEN_INVALID:
+            displayScanResult(uid, eventType, false, "Session Expired");
+            ledYellow();
+            beepWarning();
+            storageClearJwt();
+            userJwt = "";
+            // handleScanning will route to STATE_LOGIN once result times out.
             break;
         case EVENT_UNMAPPED:
             displayScanResult(uid, eventType, false, "Not Mapped");
@@ -339,8 +484,8 @@ static void handleEventResult(const String& uid, const String& eventType,
             // Re-check mapping
             lastMappingPoll = 0;
             break;
-        case EVENT_UNAUTHORIZED:
-            displayScanResult(uid, eventType, false, "Auth Error");
+        case EVENT_STATION_UNAUTHORIZED:
+            displayScanResult(uid, eventType, false, "Station Auth Error");
             ledRed();
             beepError();
             storageClearToken();
@@ -370,11 +515,18 @@ static void handleEventResult(const String& uid, const String& eventType,
 }
 
 static void handleScanning() {
-    // Show result for SCAN_RESULT_DISPLAY_MS, then return to ready
+    // Show result for SCAN_RESULT_DISPLAY_MS, then return to whichever screen
+    // matches the current auth state.
     if (millis() - scanResultShownAt >= SCAN_RESULT_DISPLAY_MS) {
         ledOff();
-        displayReadyScreen(stationId, lineId, stationType);
-        state = STATE_READY;
+        if (userJwt.isEmpty()) {
+            displayLoginScreen(stationId);
+            state = STATE_LOGIN;
+        } else {
+            displayReadyScreen(stationId, lineId, stationType);
+            state = STATE_READY;
+            lastUserActivityAt = millis();
+        }
     }
 }
 
@@ -398,7 +550,7 @@ static void handleQcWait() {
             String eventId = generateEventId();
             String ts = ntpGetIsoTimestamp();
 
-            EventResult res = apiPostEvent(token, eventId, ts, pendingRfidUid, eventType);
+            EventResult res = apiPostEvent(token, userJwt, eventId, ts, pendingRfidUid, eventType);
             handleEventResult(pendingRfidUid, eventType, res, eventId, ts);
         }
     }
@@ -448,6 +600,7 @@ void loop() {
         case STATE_CLAIMING:      handleClaiming(); break;
         case STATE_CHECK_MAPPING: handleCheckMapping(); break;
         case STATE_UNMAPPED:      handleUnmapped(); break;
+        case STATE_LOGIN:         handleLogin(); break;
         case STATE_READY:         handleReady(); break;
         case STATE_SCANNING:      handleScanning(); break;
         case STATE_QC_WAIT:       handleQcWait(); break;

@@ -115,13 +115,53 @@ bool apiHeartbeat(const String& token, const String& ts) {
     return ok;
 }
 
-EventResult apiPostEvent(const String& token, const String& eventId, const String& ts,
+LoginResult apiLogin(const String& rfidUid) {
+    LoginResult result = { LOGIN_NETWORK_ERROR, "" };
+
+    HTTPClient http;
+    String url = String(SERVER_URL) + "/api/v1/auth/login";
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+
+    JsonDocument doc;
+    doc["rfid_uid"] = rfidUid;
+
+    String body;
+    serializeJson(doc, body);
+
+    LOG_I("[API] POST /auth/login uid=%s\n", rfidUid.c_str());
+    int code = http.POST(body);
+
+    if (code == 200) {
+        JsonDocument resp;
+        deserializeJson(resp, http.getString());
+        result.status = LOGIN_OK;
+        result.token  = resp["token"].as<String>();
+        LOG_I("[API] Login OK, token=%s...\n", result.token.substring(0, 12).c_str());
+    } else if (code == 401) {
+        result.status = LOGIN_INVALID_CARD;
+        LOG_W("[API] Login rejected (401)\n");
+    } else if (code == 400) {
+        result.status = LOGIN_BAD_REQUEST;
+        LOG_E("[API] Login bad request: %s\n", http.getString().c_str());
+    } else {
+        result.status = LOGIN_NETWORK_ERROR;
+        LOG_E("[API] Login network error: HTTP %d\n", code);
+    }
+
+    http.end();
+    return result;
+}
+
+EventResult apiPostEvent(const String& stationToken, const String& userJwt,
+                         const String& eventId, const String& ts,
                          const String& rfidUid, const String& eventType) {
     HTTPClient http;
     String url = String(SERVER_URL) + "/api/v1/events";
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("Authorization", "Bearer " + token);
+    http.addHeader("Authorization", "Bearer " + stationToken);
+    http.addHeader("X-User-Token", userJwt);
 
     JsonDocument doc;
     doc["event_id"] = eventId;
@@ -137,24 +177,39 @@ EventResult apiPostEvent(const String& token, const String& eventId, const Strin
 
     LOG_I("[API] POST event: %s %s %s\n", rfidUid.c_str(), eventType.c_str(), eventId.c_str());
     int code = http.POST(body);
+    String respBody = http.getString();
 
     EventResult result;
     if (code == 200) {
-        result = EVENT_OK;
+        JsonDocument resp;
+        deserializeJson(resp, respBody);
+        const char* action = resp["action"] | "recorded";
+        if (strcmp(action, "logout") == 0) {
+            result = EVENT_LOGOUT;
+        } else if (strcmp(action, "registered") == 0) {
+            result = EVENT_REGISTERED;
+        } else {
+            result = EVENT_RECORDED;
+        }
     } else if (code == 401) {
-        result = EVENT_UNAUTHORIZED;
-    } else if (code == 404) {
-        result = EVENT_UNKNOWN_BUNDLE;
+        // Distinguish station-token failure from user-token failure by error
+        // payload. The station path triggers re-claim; the user path triggers
+        // logout-and-relogin.
+        if (respBody.indexOf("missing_user_token") >= 0
+            || respBody.indexOf("invalid_user_token") >= 0) {
+            result = EVENT_USER_TOKEN_INVALID;
+        } else {
+            result = EVENT_STATION_UNAUTHORIZED;
+        }
     } else if (code == 409) {
-        String resp = http.getString();
-        if (resp.indexOf("station_unmapped") >= 0) {
+        if (respBody.indexOf("station_unmapped") >= 0) {
             result = EVENT_UNMAPPED;
         } else {
             result = EVENT_TYPE_MISMATCH;
         }
     } else if (code == 400) {
         result = EVENT_INVALID;
-        LOG_E("[API] Event invalid: %s\n", http.getString().c_str());
+        LOG_E("[API] Event invalid: %s\n", respBody.c_str());
     } else {
         result = EVENT_NETWORK_ERROR;
         LOG_E("[API] Event network error: HTTP %d\n", code);

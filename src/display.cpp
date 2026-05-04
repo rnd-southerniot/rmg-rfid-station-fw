@@ -16,7 +16,7 @@ static TFT_eSPI tft = TFT_eSPI();
 #define C_HEADER   0x1082  // Dark grey header
 
 // Screen tracking to avoid redundant redraws
-enum Screen { SCR_NONE, SCR_BOOT, SCR_CLAIMING, SCR_UNMAPPED, SCR_READY, SCR_SCAN, SCR_QC, SCR_ERROR };
+enum Screen { SCR_NONE, SCR_BOOT, SCR_CLAIMING, SCR_UNMAPPED, SCR_LOGIN, SCR_READY, SCR_SCAN, SCR_QC, SCR_ERROR };
 static Screen currentScreen = SCR_NONE;
 static String currentReadyId;
 static String currentReadyType;
@@ -123,6 +123,29 @@ void displayReadyScreen(const String& stationId, const String& lineName, const S
     currentScreen = SCR_READY;
     currentReadyId = stationId;
     currentReadyType = type;
+}
+
+void displayLoginScreen(const String& stationId) {
+    if (currentScreen == SCR_LOGIN && currentReadyId == stationId) {
+        return;
+    }
+
+    tft.fillScreen(C_BG);
+    drawHeader("LOGIN REQUIRED");
+
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextFont(4);
+    tft.setTextColor(C_YELLOW, C_BG);
+    tft.drawString("Tap Employee Card", LCD_WIDTH / 2, 90);
+    tft.drawString("to Login", LCD_WIDTH / 2, 125);
+
+    tft.setTextFont(2);
+    tft.setTextColor(C_DIM, C_BG);
+    tft.drawString("Station: " + stationId, LCD_WIDTH / 2, 175);
+
+    currentScreen = SCR_LOGIN;
+    currentReadyId = stationId;
+    currentReadyType = "";
 }
 
 void displayScanResult(const String& rfidUid, const String& eventType, bool success, const String& message) {

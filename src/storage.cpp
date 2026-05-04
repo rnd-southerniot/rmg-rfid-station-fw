@@ -33,3 +33,17 @@ void storageSaveStationInfo(const String& stationId, const String& lineId, const
 String storageLoadStationId() { return prefs.getString("station_id", ""); }
 String storageLoadLineId()    { return prefs.getString("line_id", ""); }
 String storageLoadType()      { return prefs.getString("type", ""); }
+
+void storageSaveJwt(const String& jwt) {
+    prefs.putString("user_jwt", jwt);
+    LOG_D("[Storage] User JWT saved (%u chars)\n", (unsigned)jwt.length());
+}
+
+String storageLoadJwt() {
+    return prefs.getString("user_jwt", "");
+}
+
+void storageClearJwt() {
+    prefs.remove("user_jwt");
+    LOG_W("[Storage] User JWT cleared\n");
+}
