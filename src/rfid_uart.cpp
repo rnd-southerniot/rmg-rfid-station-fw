@@ -60,9 +60,12 @@ void rfidInit() {
 
     rfid_parser_init(&parser, RFID_UART_INTERBYTE_MS, RFID_UART_HOLD_GAP_MS);
     rfid_parser_set_format(&parser, RFID_UART_BCC_MODE, RFID_UART_ETX, RFID_UART_STRIP_MIFARE_PAD);
+    rfid_parser_set_frame_format(&parser, RFID_UART_FORMAT);
 
-    LOG_I("[RFID] UART%d reader on RX=%d @%d 8N1, idle line %s\n",
-          RFID_UART_NUM, RFID_UART_RX, RFID_UART_BAUD, (presence & 0x01u) ? "HIGH (reader present)" : "LOW (no reader?)");
+    LOG_I("[RFID] UART%d reader on RX=%d @%d 8N1 (%s frames), idle line %s\n",
+          RFID_UART_NUM, RFID_UART_RX, RFID_UART_BAUD,
+          RFID_UART_FORMAT == RFID_FORMAT_ASCII_HEX ? "ASCII" : "binary",
+          (presence & 0x01u) ? "HIGH (reader present)" : "LOW (no reader?)");
 }
 
 bool rfidCardPresent() {
@@ -131,6 +134,7 @@ void rfidSetBaud(uint32_t baud) {
     while (rfidSerial.available() > 0) (void)rfidSerial.read();   // drop bytes clocked at the old rate
     rfid_parser_init(&parser, RFID_UART_INTERBYTE_MS, RFID_UART_HOLD_GAP_MS);
     rfid_parser_set_format(&parser, RFID_UART_BCC_MODE, RFID_UART_ETX, RFID_UART_STRIP_MIFARE_PAD);
+    rfid_parser_set_frame_format(&parser, RFID_UART_FORMAT);
     rawLen = 0u;
     rawCount = 0u;
     Serial.printf("[RFID] UART1 re-clocked to %lu 8N1\n", (unsigned long)baud);
@@ -155,9 +159,9 @@ void rfidBenchService() {
             char hex[2u * RFID_UID_MAX + 1u];
             rfid_uid_to_hex(frame.uid, frame.uid_len, false, hex, sizeof(hex));
             rawFlush();
-            Serial.printf("[RFID] %s type=0x%02X data_len=%u uid=%s (parser: bcc=%u etx=0x%02X pad=%u)\n",
+            Serial.printf("[RFID] %s type=0x%02X data_len=%u uid=%s (parser: %s etx=0x%02X)\n",
                           ev == RFID_EVT_NEW_CARD ? "frame ok NEW" : "frame ok REPEAT", frame.card_type,
-                          frame.data_len, hex, parser.bcc_mode, parser.etx, parser.strip_mifare_pad);
+                          frame.data_len, hex, parser.format == RFID_FORMAT_ASCII_HEX ? "ascii" : "binary", parser.etx);
         } else if (ev == RFID_EVT_BAD_FRAME) {
             rawFlush();
             Serial.printf("[RFID] bad frame #%lu (LEN/BCC/ETX rule mismatch — expected with unconfirmed format)\n",

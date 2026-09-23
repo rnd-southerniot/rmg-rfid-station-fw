@@ -26,7 +26,7 @@ ASSUMED until the Phase-1 gate confirms it).
 | Touch RST | 41 | MSP2834 `CTP_RST` | active low |
 | Touch INT | — | MSP2834 `CTP_INT` | unwired; touch is polled |
 | SD card | — | MSP2834 `SD_CS` | unwired |
-| RFID RX | 18 | reader `TX` | UART1 9600 8N1, receive-only (nothing is sent to the reader). **Phase-3 gate:** measure the reader's TX idle level first; > 3.6 V needs a divider (1.8 kΩ series / 3.3 kΩ to GND) or a BSS138 shifter. |
+| RFID RX | 18 | reader `TX` | UART1 **115200 8N1** (PROVEN 2026-09-24), receive-only. Frame: `02` + ASCII hex digits + `0D 0A 03`, e.g. `02 "4050B047" 0D 0A 03`; no type byte, no checksum. Reader TX idle level: **UNKNOWN, not metered** (wired directly by the operator); > 3.6 V would need a divider (1.8 kΩ series / 3.3 kΩ to GND) or a BSS138 shifter. |
 | Buzzer | 1 | piezo | LEDC channel 0 / timer 0 |
 | Status LED | 2 | NeoPixel `DIN` | one WS2812-type pixel via the core's `neopixelWrite()` (RMT). Power the pixel from **3.3 V** (Arif has run WS2812B from 3.3 V on earlier benches — operator-reported; the datasheet's 3.5 V VIH only applies at 5 V supply). 330 Ω in series with DIN, 100 nF across the pixel. |
 | spare | 14, 17, 21 | — | 14 and 21 are ADC-capable (AIN1/AIN0); keep them free for analog use |

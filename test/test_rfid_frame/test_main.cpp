@@ -13,6 +13,10 @@ static const uint8_t MIFARE_FRAME[10] = { 0x02, 0x0A, 0x01, 0x00, 0xA1, 0xB2, 0x
 /* ASSUMED: 5-byte EM4100 ID 123456789A. BCC = XOR(0A,02,12,34,56,78,9A) = 9A. */
 static const uint8_t EM4100_FRAME[10] = { 0x02, 0x0A, 0x02, 0x12, 0x34, 0x56, 0x78, 0x9A, 0x9A, 0x03 };
 
+/* PROVEN 2026-09-24, captured from the module on the RAK3212 station at 115200 8N1:
+ * STX "4050B047" CR LF ETX. */
+static const uint8_t ASCII_FRAME[12] = { 0x02, '4', '0', '5', '0', 'B', '0', '4', '7', 0x0D, 0x0A, 0x03 };
+
 static rfid_parser_t p;
 static rfid_frame_t f;
 
@@ -193,6 +197,90 @@ static void test_seven_byte_uid_frame(void)
     TEST_ASSERT_EQUAL_HEX8(0x44, f.uid[6]);
 }
 
+static void ascii_setup(void)
+{
+    rfid_parser_set_frame_format(&p, RFID_FORMAT_ASCII_HEX);
+}
+
+static void test_ascii_real_frame_4050B047(void)
+{
+    ascii_setup();
+    TEST_ASSERT_EQUAL(RFID_EVT_NEW_CARD, feed_all(ASCII_FRAME, sizeof(ASCII_FRAME), 1000u));
+    TEST_ASSERT_EQUAL_HEX8(RFID_CARD_UNKNOWN, f.card_type);
+    TEST_ASSERT_EQUAL_UINT8(4u, f.uid_len);
+    const uint8_t expect[4] = { 0x40, 0x50, 0xB0, 0x47 };
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(expect, f.uid, 4);
+    char s[2 * RFID_UID_MAX + 1];
+    rfid_uid_to_hex(f.uid, f.uid_len, false, s, sizeof(s));
+    TEST_ASSERT_EQUAL_STRING("4050B047", s);
+    TEST_ASSERT_EQUAL_UINT32(1u, p.frames_ok);
+    TEST_ASSERT_EQUAL_UINT32(0u, p.frames_bad);
+}
+
+static void test_ascii_lowercase_and_ten_digits(void)
+{
+    ascii_setup();
+    const uint8_t frame[14] = { 0x02, '0', 'a', '1', 'b', '2', 'c', '3', 'd', '4', 'e', 0x0D, 0x0A, 0x03 };
+    TEST_ASSERT_EQUAL(RFID_EVT_NEW_CARD, feed_all(frame, sizeof(frame), 1000u));
+    TEST_ASSERT_EQUAL_UINT8(5u, f.uid_len);
+    const uint8_t expect[5] = { 0x0A, 0x1B, 0x2C, 0x3D, 0x4E };
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(expect, f.uid, 5);
+}
+
+static void test_ascii_odd_digit_count_is_bad(void)
+{
+    ascii_setup();
+    const uint8_t frame[7] = { 0x02, '4', '0', '5', 0x0D, 0x0A, 0x03 };
+    TEST_ASSERT_EQUAL(RFID_EVT_BAD_FRAME, feed_all(frame, sizeof(frame), 1000u));
+    TEST_ASSERT_EQUAL_UINT32(1u, p.frames_bad);
+}
+
+static void test_ascii_non_hex_is_bad_then_recovers(void)
+{
+    ascii_setup();
+    const uint8_t bad[5] = { 0x02, '4', 'G', '5', '0' };
+    TEST_ASSERT_EQUAL(RFID_EVT_BAD_FRAME, feed_all(bad, 3, 1000u));   /* 'G' rejects immediately */
+    TEST_ASSERT_EQUAL(RFID_EVT_NEW_CARD, feed_all(ASCII_FRAME, sizeof(ASCII_FRAME), 2000u));
+}
+
+static void test_ascii_missing_lf_or_etx_is_bad(void)
+{
+    ascii_setup();
+    const uint8_t no_lf[11] = { 0x02, '4', '0', '5', '0', 'B', '0', '4', '7', 0x0D, 0x03 };
+    TEST_ASSERT_EQUAL(RFID_EVT_BAD_FRAME, feed_all(no_lf, sizeof(no_lf), 1000u));
+    const uint8_t no_etx[12] = { 0x02, '4', '0', '5', '0', 'B', '0', '4', '7', 0x0D, 0x0A, 0x00 };
+    TEST_ASSERT_EQUAL(RFID_EVT_BAD_FRAME, feed_all(no_etx, sizeof(no_etx), 2000u));
+    TEST_ASSERT_EQUAL_UINT32(2u, p.frames_bad);
+}
+
+static void test_ascii_without_etx_when_configured(void)
+{
+    ascii_setup();
+    rfid_parser_set_format(&p, RFID_BCC_NONE, 0u, 0u);   /* etx = 0: frame ends at LF */
+    TEST_ASSERT_EQUAL(RFID_EVT_NEW_CARD, feed_all(ASCII_FRAME, 11, 1000u));
+    TEST_ASSERT_EQUAL_UINT8(4u, f.uid_len);
+}
+
+static void test_ascii_repeat_suppression(void)
+{
+    ascii_setup();
+    TEST_ASSERT_EQUAL(RFID_EVT_NEW_CARD, feed_all(ASCII_FRAME, sizeof(ASCII_FRAME), 1000u));
+    TEST_ASSERT_EQUAL(RFID_EVT_REPEAT,   feed_all(ASCII_FRAME, sizeof(ASCII_FRAME), 1500u));
+    TEST_ASSERT_EQUAL(RFID_EVT_NEW_CARD, feed_all(ASCII_FRAME, sizeof(ASCII_FRAME), 3000u));
+}
+
+static void test_ascii_too_many_digits_is_bad(void)
+{
+    ascii_setup();
+    uint8_t frame[1 + 22];
+    frame[0] = 0x02;
+    for (int i = 1; i <= 22; i++) frame[i] = 'A';   /* 22 digits > 20 (RFID_UID_MAX bytes) */
+    /* the 21st digit rejects the frame; the 22nd byte is then noise while waiting for STX */
+    TEST_ASSERT_EQUAL(RFID_EVT_NONE, feed_all(frame, sizeof(frame), 1000u));
+    TEST_ASSERT_EQUAL_UINT32(1u, p.frames_bad);
+    TEST_ASSERT_EQUAL_UINT32(1u, p.noise_bytes);
+}
+
 int main(int argc, char** argv)
 {
     (void)argc; (void)argv;
@@ -214,5 +302,13 @@ int main(int argc, char** argv)
     RUN_TEST(test_bcc_none_accepts_anything);
     RUN_TEST(test_pad_strip_disabled_keeps_five_bytes);
     RUN_TEST(test_seven_byte_uid_frame);
+    RUN_TEST(test_ascii_real_frame_4050B047);
+    RUN_TEST(test_ascii_lowercase_and_ten_digits);
+    RUN_TEST(test_ascii_odd_digit_count_is_bad);
+    RUN_TEST(test_ascii_non_hex_is_bad_then_recovers);
+    RUN_TEST(test_ascii_missing_lf_or_etx_is_bad);
+    RUN_TEST(test_ascii_without_etx_when_configured);
+    RUN_TEST(test_ascii_repeat_suppression);
+    RUN_TEST(test_ascii_too_many_digits_is_bad);
     return UNITY_END();
 }

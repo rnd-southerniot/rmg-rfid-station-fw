@@ -5,8 +5,14 @@
  * No Arduino dependencies: this file compiles for the ESP32 target AND for the host-native
  * unit tests (test/test_rfid_frame). All time is passed in by the caller in milliseconds.
  *
- * Frame layout (ASSUMED from vendor-family documentation; every field below is adjustable so the
- * Phase-3 bench capture can settle it without touching the state machine):
+ * Two frame formats are supported, selected with rfid_parser_set_frame_format():
+ *
+ * RFID_FORMAT_ASCII_HEX — PROVEN on the bench 2026-09-24 (the module on the RAK3212 station,
+ * 115200 8N1): STX 0x02, an even number of ASCII hex digits (8 for a 4-byte UID), CR 0x0D,
+ * LF 0x0A, ETX 0x03. No type byte, no checksum. Example: 02 34 30 35 30 42 30 34 37 0D 0A 03
+ * = "4050B047". The card type is not carried (card_type = RFID_CARD_UNKNOWN).
+ *
+ * RFID_FORMAT_BINARY_7941E — the vendor-family binary layout (ASSUMED, kept for other modules):
  *
  *   [0]       STX   0x02
  *   [1]       LEN   total frame length in bytes, STX..ETX inclusive (0x0A for a 4-byte Mifare UID)
@@ -34,9 +40,15 @@ extern "C" {
 #define RFID_FRAME_MAX        20u   /* largest frame we buffer (LEN must be <= this) */
 #define RFID_UID_MAX          10u   /* ISO14443A triple-size UID */
 
-/* Card type byte values (ASSUMED, confirmed at the bench). */
+/* Card type byte values of the binary format (ASSUMED); ASCII frames carry none. */
+#define RFID_CARD_UNKNOWN     0x00u
 #define RFID_CARD_MIFARE      0x01u
 #define RFID_CARD_EM4100      0x02u
+
+typedef enum {
+    RFID_FORMAT_BINARY_7941E = 0,
+    RFID_FORMAT_ASCII_HEX    = 1
+} rfid_frame_format_t;
 
 typedef enum {
     RFID_BCC_XOR_LEN_TO_DATA = 0, /* XOR of bytes [1 .. BCC-1]  (vendor default) */
@@ -66,6 +78,7 @@ typedef struct {
     uint8_t  bcc_mode;               /* rfid_bcc_mode_t */
     uint8_t  etx;                    /* expected trailer byte, 0 = frame has no trailer */
     uint8_t  strip_mifare_pad;       /* 1: TYPE==MIFARE, DATA==5 bytes, DATA[0]==0 -> UID = DATA[1..4] */
+    uint8_t  format;                 /* rfid_frame_format_t */
     /* frame assembly */
     uint8_t  state;
     uint8_t  buf[RFID_FRAME_MAX];
@@ -88,8 +101,12 @@ typedef struct {
 /* Initialise with the vendor-default format (BCC over LEN..DATA, ETX 0x03, Mifare pad stripped). */
 void rfid_parser_init(rfid_parser_t* p, uint32_t interbyte_timeout_ms, uint32_t hold_gap_ms);
 
-/* Override the frame format (used by the discovery gate and by the board header). */
+/* Binary-format details (BCC rule, trailer byte, Mifare pad). In ASCII mode only `etx` is used
+ * (the byte expected after CR LF; 0 = the frame ends at LF). */
 void rfid_parser_set_format(rfid_parser_t* p, uint8_t bcc_mode, uint8_t etx, uint8_t strip_mifare_pad);
+
+/* Select the frame format (default after init: RFID_FORMAT_BINARY_7941E). */
+void rfid_parser_set_frame_format(rfid_parser_t* p, uint8_t format);
 
 /* Feed one received byte. Returns an event; *out is filled for NEW_CARD and REPEAT. */
 rfid_event_t rfid_parser_feed(rfid_parser_t* p, uint8_t b, uint32_t now_ms, rfid_frame_t* out);

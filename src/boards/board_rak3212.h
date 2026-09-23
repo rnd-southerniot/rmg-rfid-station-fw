@@ -15,20 +15,24 @@
 #define TOUCH_RST   41
 #define TOUCH_ADDR  0x38
 
-// ── RFID: 125 kHz + 13.56 MHz dual-frequency UART reader (auto-output, 9600 8N1) ──────
+// ── RFID: 125 kHz + 13.56 MHz dual-frequency UART reader (auto-output) ────────────────
+// PROVEN on the bench 2026-09-24: 115200 8N1, ASCII frame  02 "4050B047" 0D 0A 03  (STX, hex
+// digits, CR, LF, ETX; no type byte, no checksum). The 9600-baud binary 7941E layout that the
+// vendor family documents does NOT apply to this module (kept selectable for other readers).
 // Receive-only: the reader's TX feeds GPIO18; nothing is sent to the reader, so no TX pin is
 // claimed (HardwareSerial only substitutes the S3 default UART1 pins when BOTH pins are < 0).
 #define RFID_BACKEND_UART   1
-#define RFID_READER_NAME    "UART 7941E"   // POST label: "RFID (UART 7941E)"
+#define RFID_READER_NAME    "UART ASCII"   // POST label: "RFID (UART ASCII)"
 #define RFID_UART_NUM       1
-#define RFID_UART_RX        18      // reader TX -> ESP32 (through a level shifter/divider if the reader is 5 V TTL)
+#define RFID_UART_RX        18      // reader TX -> ESP32 (reader TX idle level: UNKNOWN, not yet metered)
 #define RFID_UART_TX        -1      // receive-only
-#define RFID_UART_BAUD      9600
+#define RFID_UART_BAUD      115200  // PROVEN (clean frames only at this rate)
+#define RFID_UART_FORMAT    RFID_FORMAT_ASCII_HEX
 #define RFID_UART_INTERBYTE_MS   50   // gap that aborts a partial frame
 #define RFID_UART_HOLD_GAP_MS    800  // same UID within this window = card still held (Phase 3: >= 2x re-emit period)
-#define RFID_UART_BCC_MODE       0    // rfid_bcc_mode_t: 0 XOR(LEN..DATA), 1 XOR(all), 2 none — Phase 3 settles it
-#define RFID_UART_ETX            0x03 // trailing byte, 0 = none — Phase 3 settles it
-#define RFID_UART_STRIP_MIFARE_PAD 1  // 5-byte DATA "00 xx xx xx xx" for Mifare -> 4-byte UID
+#define RFID_UART_BCC_MODE       0    // binary format only
+#define RFID_UART_ETX            0x03 // PROVEN: 0x03 follows CR LF
+#define RFID_UART_STRIP_MIFARE_PAD 1  // binary format only
 #define RFID_UART_REVERSE_MIFARE_UID 0 // 1 if the Phase 3 byte-order check shows the UID reversed vs MFRC522
 
 // ── Buzzer (LEDC channel 0 / timer 0) ─────────────────────

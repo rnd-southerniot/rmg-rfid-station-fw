@@ -5,7 +5,7 @@
 
 #include <string.h>
 
-enum { ST_WAIT_STX = 0, ST_IN_FRAME = 1 };
+enum { ST_WAIT_STX = 0, ST_IN_FRAME = 1, ST_ASCII_DIGITS = 2, ST_ASCII_LF = 3, ST_ASCII_ETX = 4 };
 
 static uint8_t overhead_bytes(const rfid_parser_t* p)
 {
@@ -31,6 +31,13 @@ void rfid_parser_set_format(rfid_parser_t* p, uint8_t bcc_mode, uint8_t etx, uin
     p->strip_mifare_pad = strip_mifare_pad ? 1u : 0u;
     p->state            = ST_WAIT_STX;
     p->idx              = 0u;
+}
+
+void rfid_parser_set_frame_format(rfid_parser_t* p, uint8_t format)
+{
+    p->format = format;
+    p->state  = ST_WAIT_STX;
+    p->idx    = 0u;
 }
 
 void rfid_parser_forget_last(rfid_parser_t* p)
@@ -86,6 +93,30 @@ static void fill_frame(const rfid_parser_t* p, rfid_frame_t* out)
     memcpy(out->uid, uid, uid_len);
 }
 
+static int hex_nibble(uint8_t c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/* ASCII frame: buf[] holds the hex digits collected so far, idx = digit count. */
+static bool fill_frame_ascii(const rfid_parser_t* p, rfid_frame_t* out)
+{
+    if (p->idx < 2u || (p->idx & 1u) != 0u || p->idx / 2u > RFID_UID_MAX) {
+        return false;
+    }
+    out->card_type = RFID_CARD_UNKNOWN;
+    out->data_len  = (uint8_t)(p->idx / 2u);
+    for (uint8_t i = 0u; i < out->data_len; i++) {
+        out->data[i] = (uint8_t)((hex_nibble(p->buf[2u * i]) << 4) | hex_nibble(p->buf[2u * i + 1u]));
+    }
+    out->uid_len = out->data_len;
+    memcpy(out->uid, out->data, out->uid_len);
+    return true;
+}
+
 static rfid_event_t classify(rfid_parser_t* p, const rfid_frame_t* f, uint32_t now_ms)
 {
     const bool same = p->have_last && p->last_uid_len == f->uid_len &&
@@ -115,16 +146,66 @@ rfid_event_t rfid_parser_feed(rfid_parser_t* p, uint8_t b, uint32_t now_ms, rfid
             p->noise_bytes++;
             return RFID_EVT_NONE;
         }
-        p->buf[0]       = b;
-        p->idx          = 1u;
         p->expect_len   = 0u;
-        p->state        = ST_IN_FRAME;
         p->last_byte_ms = now_ms;
+        if (p->format == RFID_FORMAT_ASCII_HEX) {
+            p->idx   = 0u;               /* digit count; STX itself is not stored */
+            p->state = ST_ASCII_DIGITS;
+        } else {
+            p->buf[0] = b;
+            p->idx    = 1u;
+            p->state  = ST_IN_FRAME;
+        }
         return RFID_EVT_NONE;
     }
 
-    /* ST_IN_FRAME */
     p->last_byte_ms = now_ms;
+
+    if (p->format == RFID_FORMAT_ASCII_HEX) {
+        if (p->state == ST_ASCII_DIGITS) {
+            if (b == '\r') {
+                p->state = ST_ASCII_LF;
+                return RFID_EVT_NONE;
+            }
+            if (hex_nibble(b) < 0 || p->idx >= RFID_FRAME_MAX) {
+                p->frames_bad++;
+                resync(p);
+                return RFID_EVT_BAD_FRAME;
+            }
+            p->buf[p->idx++] = b;
+            return RFID_EVT_NONE;
+        }
+        if (p->state == ST_ASCII_LF) {
+            if (b != '\n') {
+                p->frames_bad++;
+                resync(p);
+                return RFID_EVT_BAD_FRAME;
+            }
+            if (p->etx != 0u) {
+                p->state = ST_ASCII_ETX;
+                return RFID_EVT_NONE;
+            }
+        } else if (p->state == ST_ASCII_ETX) {
+            if (b != p->etx) {
+                p->frames_bad++;
+                resync(p);
+                return RFID_EVT_BAD_FRAME;
+            }
+        }
+        /* frame complete (after LF, or after ETX when configured) */
+        rfid_frame_t local;
+        rfid_frame_t* f = out ? out : &local;
+        if (!fill_frame_ascii(p, f)) {
+            p->frames_bad++;
+            resync(p);
+            return RFID_EVT_BAD_FRAME;
+        }
+        p->frames_ok++;
+        resync(p);
+        return classify(p, f, now_ms);
+    }
+
+    /* ST_IN_FRAME (binary) */
     p->buf[p->idx++] = b;
 
     if (p->idx == 2u) {
