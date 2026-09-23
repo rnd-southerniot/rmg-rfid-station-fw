@@ -62,8 +62,9 @@ LCD 18/23/19/15/2/4 (VSPI) · touch 21/22/25 · MFRC522 5/14/13/12 (HSPI) · buz
    resets the chip when the host passes through DTR=0/RTS=1; pyserial's usual "dtr=False,
    rts=False, open" order does exactly that on every open (PROVEN 2026-09-24), and a reopen loop
    then masquerades as a firmware boot loop. The tool pre-asserts both lines, opens, then drops
-   RTS before DTR. Whether `pio device monitor` (with `monitor_dtr/rts = 0`) also resets is
-   recorded in the State block once tested.
+   RTS before DTR. `pio device monitor` (even with `monitor_dtr/rts = 0`) also reset the board:
+   uptime fell from 98 s to 54 s across two monitor opens with no other port activity. Use it
+   only when a reset is acceptable.
 6. **Flash = WRITE only.** No `esptool erase_flash` without an explicit instruction; NVS holds the
    station token, JWT, mapping, event queue, seq and the LoRa session/nonces. Wiping the LoRa
    namespace goes through the console (`lora clear-session yes`), nothing else.
@@ -129,5 +130,5 @@ Phase 3 also fixes three ASSUMED items in `board_rak3212.h`: `RFID_UART_BCC_MODE
 ## 9. State
 
 <!-- 2026-09-24: Plan approved (LoRa = offline fallback for scans, UART reader, MSP2834 touch). Phase 0 done on feat/rak3212-port (tag pre-rak3212 = ec547a4): multi-env platformio.ini, board headers, rfid_frame + lora_payload (28 native tests), ChirpStack codec (10 vectors), rfid_uart, lora_link (RadioLib 7.7.1 task), serial console, bring-up sketch, main.cpp fallback + offline mode + E_<epoch>_<seq> ids, docs. esp32dev regression +32 B RAM / +1988 B flash, 0 src warnings. -->
-<!-- 2026-09-24 Phase 1 PASS (bench): board /dev/cu.usbmodem1401 = 303A:1001 "USB JTAG/serial debug unit" (native USB PROVEN); banner flash=16777216 psram=8386295 heap=369480 mac=3C:DC:75:6F:85:DC deveui=3CDC75FFFE6F85DC, ping echoed; pixel/beep await Arif's confirmation. FOUND: pyserial's default DTR-then-RTS open order resets the S3 on every open (rst:0x15 USB_UART_CHIP_RESET) and a reopen loop looked like a boot loop for 10 s — tools/bench/serial_capture.py holds the port safely. One esptool re-flash attempt failed with "No serial data received" while the app ran (cause UNKNOWN, re-test at the Phase-2 flash). -->
+<!-- 2026-09-24 Phase 1 PASS (bench): board /dev/cu.usbmodem1401 = 303A:1001 "USB JTAG/serial debug unit" (native USB PROVEN); banner flash=16777216 psram=8386295 heap=369480 mac=3C:DC:75:6F:85:DC deveui=3CDC75FFFE6F85DC, ping echoed; pixel/beep await Arif's confirmation. pio device monitor (monitor_dtr/rts=0) also resets on open (uptime 98 s -> 54 s across two opens). FOUND: pyserial's default DTR-then-RTS open order resets the S3 on every open (rst:0x15 USB_UART_CHIP_RESET) and a reopen loop looked like a boot loop for 10 s — tools/bench/serial_capture.py holds the port safely. One esptool re-flash attempt failed with "No serial data received" while the app ran (cause UNKNOWN, re-test at the Phase-2 flash). -->
 <!-- 2026-09-24: Arif fixed LCD/touch pins (CS 12, RST 39, RS 38, MOSI 11, SCLK 13, LED 42, MISO 10, CTP 40/41/9), reader TX -> GPIO18 receive-only, NeoPixel instead of RGB LED (DIN GPIO2, my pick). Arif: WS2812B has run from 3.3 V on his bench before — no level shifting planned. Next: Phase 1 bring-up on the bench. -->
