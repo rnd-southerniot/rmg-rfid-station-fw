@@ -16,11 +16,13 @@
 #define TOUCH_ADDR  0x38
 
 // ── RFID: 125 kHz + 13.56 MHz dual-frequency UART reader (auto-output, 9600 8N1) ──────
+// Receive-only: the reader's TX feeds GPIO18; nothing is sent to the reader, so no TX pin is
+// claimed (HardwareSerial only substitutes the S3 default UART1 pins when BOTH pins are < 0).
 #define RFID_BACKEND_UART   1
 #define RFID_READER_NAME    "UART 7941E"   // POST label: "RFID (UART 7941E)"
 #define RFID_UART_NUM       1
-#define RFID_UART_RX        14      // reader TX -> ESP32 (through a level shifter/divider if the reader is 5 V TTL)
-#define RFID_UART_TX        21      // ESP32 -> reader RX (unused by auto-output readers; leave unwired)
+#define RFID_UART_RX        18      // reader TX -> ESP32 (through a level shifter/divider if the reader is 5 V TTL)
+#define RFID_UART_TX        -1      // receive-only
 #define RFID_UART_BAUD      9600
 #define RFID_UART_INTERBYTE_MS   50   // gap that aborts a partial frame
 #define RFID_UART_HOLD_GAP_MS    800  // same UID within this window = card still held (Phase 3: >= 2x re-emit period)
@@ -33,10 +35,14 @@
 #define BUZZER_PIN      1
 #define BUZZER_FREQ_HZ  2700
 
-// ── RGB LED (active high) ─────────────────────────────────
-#define LED_R_PIN   17
-#define LED_G_PIN   18
-#define LED_B_PIN   2
+// ── Status LED: one WS2812-type NeoPixel (data on GPIO2, driven by the core's neopixelWrite) ──
+// Power the pixel from 3.3 V (or level-shift the data line): a WS2812B on 5 V needs VIH >= 3.5 V
+// and a 3.3 V data signal is out of spec. 330 R in series with data, 100 nF across the pixel.
+// Brightness starts high per bench rule (dim defaults waste bench cycles); lower after Phase 1.
+#define LED_BACKEND_NEOPIXEL  1
+#define LED_NAME              "NeoPixel"   // POST label: "LED (NeoPixel)"
+#define NEOPIXEL_PIN          2
+#define NEOPIXEL_BRIGHTNESS   255
 
 // ── LCD backlight: driven by TFT_eSPI (TFT_BL=42, TFT_BACKLIGHT_ON=HIGH in platformio.ini).
 // If PWM dimming is added later use LEDC channel 2 (timer 1) — channel 1 shares timer 0 with

@@ -17,7 +17,7 @@ RMG RFID station firmware. Embedded firmware for RFID reader stations used in th
 - Station claim / mapping / operator login against the ETS backend
 - Offline event queue in NVS with HTTP replay
 - LoRaWAN offline fallback (`rak3212`): scan events and a heartbeat go out over LoRa while HTTP is down — contract in [docs/LORAWAN_PAYLOAD.md](docs/LORAWAN_PAYLOAD.md)
-- 2.8" ILI9341 display + FT6336 capacitive touch (QC PASS/FAIL), LED + buzzer feedback
+- 2.8" ILI9341 display + FT6336 capacitive touch (QC PASS/FAIL), status LED (RGB on `esp32dev`, NeoPixel on `rak3212`) + buzzer feedback
 - Power-on self-test, ArduinoOTA updates, bench console over USB (`rak3212`)
 
 ## Hardware
@@ -33,10 +33,10 @@ Two supported boards; pins are in [docs/PIN_MAP.md](docs/PIN_MAP.md) and `src/bo
 
 | MSP2834 pin | GPIO | | Other | GPIO |
 |---|---|---|---|---|
-| LCD_CS | 12 | | RFID reader TX → | 14 (level-shift if 5 V TTL) |
-| LCD_RST | 39 | | RFID reader RX ← | 21 (optional) |
-| LCD_RS (DC) | 38 | | Buzzer | 1 |
-| SDI (MOSI) | 11 | | LED R / G / B | 17 / 18 / 2 |
+| LCD_CS | 12 | | RFID reader TX → | 18 (receive-only; level-shift if 5 V TTL) |
+| LCD_RST | 39 | | Buzzer | 1 |
+| LCD_RS (DC) | 38 | | NeoPixel DIN | 2 (power the pixel from 3.3 V) |
+| SDI (MOSI) | 11 | | spare | 14, 17, 21 |
 | SCK | 13 | | | |
 | LED (backlight) | 42 | | | |
 | SDO (MISO) | 10 | | | |

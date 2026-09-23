@@ -23,6 +23,8 @@
 #define BUZZER_FREQ_HZ  2700  // Resonant frequency for piezo buzzer
 
 // ── RGB LED (active low / common cathode) ─────────────────
+#define LED_BACKEND_RGB 1
+#define LED_NAME        "R/G/B"   // POST label: "LED (R/G/B)"
 #define LED_R_PIN   32
 #define LED_G_PIN   26
 #define LED_B_PIN   27

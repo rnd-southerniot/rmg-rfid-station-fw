@@ -202,7 +202,7 @@ static void handleBoot() {
     // Show POST results
     displayPostScreen();
     displayPostResult(0, "LCD", true);
-    displayPostResult(1, "LED (R/G/B)", true);
+    displayPostResult(1, "LED (" LED_NAME ")", true);
     displayPostResult(2, "Buzzer", true);
     displayPostResult(3, "RFID (" RFID_READER_NAME ")", rfidOk);
     displayPostResult(4, "Touch (FT6336)", touchOk);

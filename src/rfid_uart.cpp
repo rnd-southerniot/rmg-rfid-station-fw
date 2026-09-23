@@ -10,7 +10,7 @@
 #include "rfid_frame.h"
 #include <HardwareSerial.h>
 
-static HardwareSerial rfidSerial(RFID_UART_NUM);
+static HardwareSerial rfidSerial(RFID_UART_NUM);   // receive-only: RFID_UART_TX is -1
 static rfid_parser_t  parser;
 static String         pendingUid;      // latched UID string, consumed by rfidReadUid()
 static uint8_t        presence = 0;    // see RfidUartStats::presence

@@ -1,11 +1,19 @@
 #include "led_buzzer.h"
 #include "config.h"
 
+#if LED_BACKEND_NEOPIXEL
+// Single WS2812-type pixel via the Arduino core's RMT-backed neopixelWrite() (no library).
+static void setLed(bool r, bool g, bool b) {
+    const uint8_t v = NEOPIXEL_BRIGHTNESS;
+    neopixelWrite(NEOPIXEL_PIN, r ? v : 0, g ? v : 0, b ? v : 0);
+}
+#else
 static void setLed(bool r, bool g, bool b) {
     digitalWrite(LED_R_PIN, r ? HIGH : LOW);
     digitalWrite(LED_G_PIN, g ? HIGH : LOW);
     digitalWrite(LED_B_PIN, b ? HIGH : LOW);
 }
+#endif
 
 #define BUZZER_CHANNEL 0
 
@@ -16,9 +24,11 @@ static void toneMs(int freq, int ms) {
 }
 
 void ledBuzzerInit() {
+#if !LED_BACKEND_NEOPIXEL
     pinMode(LED_R_PIN, OUTPUT);
     pinMode(LED_G_PIN, OUTPUT);
     pinMode(LED_B_PIN, OUTPUT);
+#endif
     ledOff();
 
     ledcSetup(BUZZER_CHANNEL, BUZZER_FREQ_HZ, 8);
