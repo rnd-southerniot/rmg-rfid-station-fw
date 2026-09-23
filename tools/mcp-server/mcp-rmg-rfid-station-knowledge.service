@@ -1,0 +1,19 @@
+[Unit]
+Description=SIoT rmg-rfid-station-fw Knowledge MCP Server (RMG RFID station, RAK3212 LoRaWAN fallback)
+After=network.target
+
+[Service]
+Type=simple
+User=mcp
+Group=mcp
+WorkingDirectory=/home/mcp/mcp-servers/rmg-rfid-station-knowledge
+Environment="PATH=/home/mcp/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="RMGRFID_KNOWLEDGE_ROOT=/home/mcp/knowledge/rmg-rfid-station-fw"
+ExecStart=/home/mcp/.local/bin/uv run python server.py streamable-http 127.0.0.1 8020
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
