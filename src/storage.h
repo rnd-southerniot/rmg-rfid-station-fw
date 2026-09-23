@@ -16,3 +16,9 @@ String storageLoadType();
 void   storageSaveJwt(const String& jwt);
 String storageLoadJwt();
 void   storageClearJwt();
+
+// Per-station event sequence (u16, wraps). Shared by the HTTP event_id "E_<epoch>_<seq>" and the
+// LoRa scan payload so the backend can de-duplicate. Checkpointed to NVS every 64 values and
+// jumped ahead by 64 at boot, so a value is never handed out twice across reboots.
+uint16_t storageNextSeq();
+uint16_t storageCurrentSeq();

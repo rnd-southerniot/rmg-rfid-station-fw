@@ -40,6 +40,12 @@ String ntpGetIsoTimestamp() {
     return String("1970-01-01T00:00:00Z");
 }
 
+uint32_t ntpGetEpoch() {
+    // time() never blocks (unlike getLocalTime() with its default 5 s wait when unsynced).
+    const time_t t = time(nullptr);
+    return (t > 1600000000) ? (uint32_t)t : 0u;   // before 2020-09 = never synced
+}
+
 String ntpGetTimeStr() {
     struct tm t;
     if (getLocalTime(&t)) {

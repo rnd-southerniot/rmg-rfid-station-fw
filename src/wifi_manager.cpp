@@ -39,3 +39,7 @@ void wifiReconnect() {
 String wifiGetMac() {
     return WiFi.macAddress(); // Returns "XX:XX:XX:XX:XX:XX" uppercase
 }
+
+int8_t wifiGetRssi() {
+    return WiFi.status() == WL_CONNECTED ? (int8_t)WiFi.RSSI() : 0;
+}

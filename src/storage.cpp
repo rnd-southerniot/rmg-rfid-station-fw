@@ -4,10 +4,16 @@
 #include <Preferences.h>
 
 static Preferences prefs;
+static uint16_t seq = 0;
+
+#define SEQ_CHECKPOINT 64
 
 void storageInit() {
     prefs.begin("rfid-station", false);
-    LOG_I("[Storage] NVS initialized\n");
+    // Jump past every value that could have been handed out before the last checkpoint.
+    seq = (uint16_t)(prefs.getUShort("seq", 0) + SEQ_CHECKPOINT);
+    prefs.putUShort("seq", seq);
+    LOG_I("[Storage] NVS initialized, event seq starts at %u\n", seq);
 }
 
 void storageSaveToken(const String& token) {
@@ -46,4 +52,16 @@ String storageLoadJwt() {
 void storageClearJwt() {
     prefs.remove("user_jwt");
     LOG_W("[Storage] User JWT cleared\n");
+}
+
+uint16_t storageNextSeq() {
+    seq++;
+    if ((seq % SEQ_CHECKPOINT) == 0) {
+        prefs.putUShort("seq", seq);
+    }
+    return seq;
+}
+
+uint16_t storageCurrentSeq() {
+    return seq;
 }
