@@ -58,8 +58,12 @@ LCD 18/23/19/15/2/4 (VSPI) · touch 21/22/25 · MFRC522 5/14/13/12 (HSPI) · buz
 3. **Antenna connected before any LoRa TX** (Phase 4 onward). TX power is 10 dBm.
 4. **Backlight**: do not drive the MSP2834 `LED` pin from GPIO42 until the schematic shows a
    logic input; if it is the raw LED, use an external transistor or tie it to the rail.
-5. **USB monitor must not assert DTR/RTS** (holds the S3 in reset): `monitor_dtr/rts = 0` are in
-   `platformio.ini`; for scripts use the bench-capture ritual (dtr/rts False before open).
+5. **Serial capture only with `tools/bench/serial_capture.py`.** The USB-Serial-JTAG peripheral
+   resets the chip when the host passes through DTR=0/RTS=1; pyserial's usual "dtr=False,
+   rts=False, open" order does exactly that on every open (PROVEN 2026-09-24), and a reopen loop
+   then masquerades as a firmware boot loop. The tool pre-asserts both lines, opens, then drops
+   RTS before DTR. Whether `pio device monitor` (with `monitor_dtr/rts = 0`) also resets is
+   recorded in the State block once tested.
 6. **Flash = WRITE only.** No `esptool erase_flash` without an explicit instruction; NVS holds the
    station token, JWT, mapping, event queue, seq and the LoRa session/nonces. Wiping the LoRa
    namespace goes through the console (`lora clear-session yes`), nothing else.
@@ -78,6 +82,7 @@ pio run -e rak3212-bringup -t upload && pio device monitor -e rak3212-bringup   
 pio test -e native                      # 28 Unity tests (frame parser, LoRa payload)
 node tools/chirpstack/codec_test.js     # 10 codec vectors
 pio device list                         # rak3212 → VID:PID=303A:1001
+tools/bench/serial_capture.py --seconds 15 --send ping --after 4   # safe capture (no chip reset)
 ```
 
 ## 6. Resource budgets
@@ -95,8 +100,8 @@ pio device list                         # rak3212 → VID:PID=303A:1001
 | Phase | Goal | Gate (exact expectation) | Rollback |
 |---|---|---|---|
 | 0 ✅ | multi-env build, pure modules + tests, docs | `pio test -e native` → `28 test cases: 28 succeeded`; codec `10/10`; esp32dev sizes identical after restructure | `git reset --hard pre-rak3212` |
-| **1 ▶** | board bring-up: USB CDC, PSRAM, NeoPixel, buzzer | `pio device list` shows `303A:1001`; monitor prints `[P1] RAK3212 bring-up chip=ESP32-S3 … flash=16777216 psram=8388608 mac=… deveui=…FFFE…`; pixel cycles R/G/B at ~1 Hz; one beep; `ping` → `echo: ping`. `psram=0` or boot loop = FAIL (`memory_type`) | revert commit |
-| 2 | MSP2834 display + FT6336G touch | `[Display] Initialized (320x240 landscape)`, `[Touch] FT6336 initialized`, `[POST] … Touch=OK`, SELF-TEST list on screen; `ui qc` + `ui touch on` → finger hits PASS/FAIL boxes. Crash on first draw = `USE_HSPI_PORT` missing | revert |
+| 1 ✅ (pixel/beep visual pending) | board bring-up: USB CDC, PSRAM, NeoPixel, buzzer | `pio device list` shows `303A:1001` ✓; banner `[P1] RAK3212 bring-up chip=ESP32-S3 rev=0 cores=2 flash=16777216 psram=8386295 … mac=3C:DC:75:6F:85:DC deveui=3CDC75FFFE6F85DC` ✓ (PSRAM = allocator-usable size of 8 MiB); `ping` → `echo: ping` ✓; pixel cycles R/G/B ~1 Hz + one beep = operator check | revert commit |
+| **2 ▶** | MSP2834 display + FT6336G touch | `[Display] Initialized (320x240 landscape)`, `[Touch] FT6336 initialized`, `[POST] … Touch=OK`, SELF-TEST list on screen; `ui qc` + `ui touch on` → finger hits PASS/FAIL boxes. Crash on first draw = `USE_HSPI_PORT` missing | revert |
 | 3 | reader frame discovery + parser config | DMM gate on reader TX; `rfid raw on` bytes recorded; `[Main] Scanned UID: X` **equals the backend's enrolled hex** for a known badge; one line per presentation while held; POST `RFID (UART 7941E) OK` | revert; defaults stay vendor values |
 | 4 | SX1262 + OTAA join + heartbeat decoded | `[LoRa] SX1262 up (AS923, TCXO 1.8V, DIO2 RF switch)`; `[LoRa] JOINED AS923 (new session); uplink DR3 (SF9)` < 10 s; `lora hb` → `uplink OK fPort=11 len=20`; ChirpStack shows `object.type="heartbeat"`; reboot → `session restored (no re-join)` | `lora clear-session yes`; revert |
 | 5 | fallback end-to-end + de-dup | backend down: scan → `Queued + LoRa`, ChirpStack `event_id="E_<epoch>_N"`; restore → HTTP replay with the **same** N; AP off: READY stays up, heartbeat `WIFI_DOWN`; 30 min soak, `sys loop` < 50 ms | revert Phase 5 commits |
@@ -124,4 +129,5 @@ Phase 3 also fixes three ASSUMED items in `board_rak3212.h`: `RFID_UART_BCC_MODE
 ## 9. State
 
 <!-- 2026-09-24: Plan approved (LoRa = offline fallback for scans, UART reader, MSP2834 touch). Phase 0 done on feat/rak3212-port (tag pre-rak3212 = ec547a4): multi-env platformio.ini, board headers, rfid_frame + lora_payload (28 native tests), ChirpStack codec (10 vectors), rfid_uart, lora_link (RadioLib 7.7.1 task), serial console, bring-up sketch, main.cpp fallback + offline mode + E_<epoch>_<seq> ids, docs. esp32dev regression +32 B RAM / +1988 B flash, 0 src warnings. -->
+<!-- 2026-09-24 Phase 1 PASS (bench): board /dev/cu.usbmodem1401 = 303A:1001 "USB JTAG/serial debug unit" (native USB PROVEN); banner flash=16777216 psram=8386295 heap=369480 mac=3C:DC:75:6F:85:DC deveui=3CDC75FFFE6F85DC, ping echoed; pixel/beep await Arif's confirmation. FOUND: pyserial's default DTR-then-RTS open order resets the S3 on every open (rst:0x15 USB_UART_CHIP_RESET) and a reopen loop looked like a boot loop for 10 s — tools/bench/serial_capture.py holds the port safely. One esptool re-flash attempt failed with "No serial data received" while the app ran (cause UNKNOWN, re-test at the Phase-2 flash). -->
 <!-- 2026-09-24: Arif fixed LCD/touch pins (CS 12, RST 39, RS 38, MOSI 11, SCLK 13, LED 42, MISO 10, CTP 40/41/9), reader TX -> GPIO18 receive-only, NeoPixel instead of RGB LED (DIN GPIO2, my pick). Arif: WS2812B has run from 3.3 V on his bench before — no level shifting planned. Next: Phase 1 bring-up on the bench. -->

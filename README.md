@@ -71,6 +71,7 @@ pio run -e rak3212
 pio run -e rak3212 -t upload
 pio device monitor -e rak3212           # dtr/rts are forced low in platformio.ini
 #    type `help` on the monitor for the bench console (lora show, rfid raw on, ...)
+#    scripted capture WITHOUT resetting the chip: tools/bench/serial_capture.py --seconds 15
 
 # 4. Host-native unit tests (frame parser, LoRa payload) + ChirpStack codec check
 pio test -e native
