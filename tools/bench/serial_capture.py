@@ -58,7 +58,8 @@ def main() -> int:
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--seconds", type=float, default=15)
     ap.add_argument("--send", action="append", default=[], help="line to send once (repeatable; sent in order, 0.4 s apart)")
-    ap.add_argument("--after", type=float, default=3.0, help="seconds to wait before --send")
+    ap.add_argument("--after", type=float, default=3.0, help="seconds to wait before the first --send")
+    ap.add_argument("--gap", type=float, default=0.4, help="seconds between successive --send lines")
     ap.add_argument("--out", help="also append raw lines to this file")
     ap.add_argument("--reset", action="store_true",
                     help="reset the chip first (reset-on-open), then reopen ONCE safely after the "
@@ -94,15 +95,13 @@ def main() -> int:
         s = open_without_reset(ports[0], a.baud)
     out = open(a.out, "a") if a.out else None
     print(f"[capture] {s.port} @ {a.baud}, DTR/RTS low, {a.seconds:.0f} s")
-    t0, buf, sent, n = time.time(), b"", False, 0
+    t0, buf, n, next_send = time.time(), b"", 0, 0
     while time.time() - t0 < a.seconds:
         try:
-            if a.send and not sent and time.time() - t0 >= a.after:
-                for line_to_send in a.send:
-                    s.write((line_to_send + "\n").encode())
-                    print(f"[capture] sent {line_to_send!r}")
-                    time.sleep(0.4)
-                sent = True
+            if a.send and next_send < len(a.send) and time.time() - t0 >= a.after + next_send * a.gap:
+                s.write((a.send[next_send] + "\n").encode())
+                print(f"[capture] t={time.time()-t0:.1f}s sent {a.send[next_send]!r}")
+                next_send += 1
             chunk = s.read(256)
         except (serial.SerialException, OSError):
             print(f"[capture] port dropped at t={time.time()-t0:.1f}s (chip reset). Not reopening: "

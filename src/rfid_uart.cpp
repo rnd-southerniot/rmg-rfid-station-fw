@@ -16,7 +16,33 @@ static String         pendingUid;      // latched UID string, consumed by rfidRe
 static uint8_t        presence = 0;    // see RfidUartStats::presence
 static uint8_t        lastCardType = 0;
 static bool           rawDump = false;
+static uint32_t       currentBaud = RFID_UART_BAUD;
 static uint32_t       lastRawMs = 0;
+static char           rawLine[3 * 32 + 24];   // one frame's bytes as hex
+static size_t         rawLen = 0;
+static uint32_t       rawFirstGapMs = 0;
+static uint8_t        rawCount = 0;
+
+static void rawFlush() {
+    if (rawCount == 0u) return;
+    rawLine[rawLen] = '\0';
+    Serial.printf("[RFID raw] +%lums %u bytes:%s\n", (unsigned long)rawFirstGapMs, rawCount, rawLine);
+    rawLen = 0u;
+    rawCount = 0u;
+}
+
+static void rawByte(uint8_t b, uint32_t now) {
+    const uint32_t gap = now - lastRawMs;
+    if (rawCount > 0u && (gap > 20u || rawCount >= 32u)) {
+        rawFlush();
+    }
+    if (rawCount == 0u) {
+        rawFirstGapMs = gap;
+    }
+    rawLen += (size_t)snprintf(&rawLine[rawLen], sizeof(rawLine) - rawLen, " %02X", b);
+    rawCount++;
+    lastRawMs = now;
+}
 
 void rfidInit() {
     /*
@@ -43,20 +69,14 @@ bool rfidCardPresent() {
     if (!pendingUid.isEmpty()) {
         return true;   // latched and not yet consumed
     }
+    if (rawDump) {
+        return false;  // bench raw dump owns the reader (see rfidBenchService)
+    }
 
     const uint32_t now = millis();
     int budget = 64;   // bound the work per loop pass
     while (budget-- > 0 && rfidSerial.available() > 0) {
         const uint8_t b = (uint8_t)rfidSerial.read();
-
-        if (rawDump) {
-            const uint32_t gap = now - lastRawMs;
-            if (gap > 20u) {
-                Serial.printf("\n[RFID raw] +%lums:", (unsigned long)gap);
-            }
-            Serial.printf(" %02X", b);
-            lastRawMs = now;
-        }
 
         rfid_frame_t frame;
         const rfid_event_t ev = rfid_parser_feed(&parser, b, now, &frame);
@@ -92,8 +112,62 @@ uint8_t rfidGetVersion() {
 }
 
 void rfidSetRawDump(bool on) {
+    rawFlush();
     rawDump = on;
     lastRawMs = millis();
+    rawLen = 0u;
+    rawCount = 0u;
+    if (on) {
+        const bool high = digitalRead(RFID_UART_RX) != 0;
+        Serial.printf("[RFID raw] RX GPIO%d idles %s%s\n", RFID_UART_RX, high ? "HIGH" : "LOW",
+                      high ? " (reader driving the line)" : " — no signal: reader unpowered, not wired to this pin, or in Wiegand mode?");
+    }
+}
+
+void rfidSetBaud(uint32_t baud) {
+    rawFlush();
+    rfidSerial.updateBaudRate(baud);
+    currentBaud = baud;
+    while (rfidSerial.available() > 0) (void)rfidSerial.read();   // drop bytes clocked at the old rate
+    rfid_parser_init(&parser, RFID_UART_INTERBYTE_MS, RFID_UART_HOLD_GAP_MS);
+    rfid_parser_set_format(&parser, RFID_UART_BCC_MODE, RFID_UART_ETX, RFID_UART_STRIP_MIFARE_PAD);
+    rawLen = 0u;
+    rawCount = 0u;
+    Serial.printf("[RFID] UART1 re-clocked to %lu 8N1\n", (unsigned long)baud);
+}
+
+uint32_t rfidGetBaud() {
+    return currentBaud;
+}
+
+void rfidBenchService() {
+    if (!rawDump) return;
+    const uint32_t now = millis();
+    int budget = 64;
+    while (budget-- > 0 && rfidSerial.available() > 0) {
+        const uint8_t b = (uint8_t)rfidSerial.read();
+        rawByte(b, now);
+        rfid_frame_t frame;
+        const rfid_event_t ev = rfid_parser_feed(&parser, b, now, &frame);
+        if (ev == RFID_EVT_NEW_CARD || ev == RFID_EVT_REPEAT) {
+            presence |= 0x02u;
+            lastCardType = frame.card_type;
+            char hex[2u * RFID_UID_MAX + 1u];
+            rfid_uid_to_hex(frame.uid, frame.uid_len, false, hex, sizeof(hex));
+            rawFlush();
+            Serial.printf("[RFID] %s type=0x%02X data_len=%u uid=%s (parser: bcc=%u etx=0x%02X pad=%u)\n",
+                          ev == RFID_EVT_NEW_CARD ? "frame ok NEW" : "frame ok REPEAT", frame.card_type,
+                          frame.data_len, hex, parser.bcc_mode, parser.etx, parser.strip_mifare_pad);
+        } else if (ev == RFID_EVT_BAD_FRAME) {
+            rawFlush();
+            Serial.printf("[RFID] bad frame #%lu (LEN/BCC/ETX rule mismatch — expected with unconfirmed format)\n",
+                          (unsigned long)parser.frames_bad);
+        }
+    }
+    if (rawCount > 0u && (now - lastRawMs) > 20u) {
+        rawFlush();
+    }
+    rfid_parser_tick(&parser, now);
 }
 
 bool rfidGetRawDump() {
@@ -109,5 +183,6 @@ RfidUartStats rfidGetStats() {
     s.noiseBytes   = parser.noise_bytes;
     s.presence     = presence;
     s.lastCardType = lastCardType;
+    s.lineHighNow  = digitalRead(RFID_UART_RX) != 0;
     return s;
 }

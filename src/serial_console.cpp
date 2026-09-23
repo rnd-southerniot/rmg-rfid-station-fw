@@ -45,6 +45,7 @@ void cmdHelp() {
     Serial.println("  lora clear-session yes  wipe nonces+session in NVS and re-join (DESTRUCTIVE)");
     Serial.println("  rfid raw on|off         hex-dump reader bytes with inter-byte timing");
     Serial.println("  rfid stats              parser counters and presence bits");
+    Serial.println("  rfid baud <n>           re-clock the reader UART (discovery: 9600/19200/38400/57600/115200)");
     Serial.println("  queue show              pending HTTP replay events");
     Serial.println("  ui qc                   draw the QC PASS/FAIL screen (bench hit-box check)");
     Serial.println("  ui touch on|off         echo touch points and which QC button they hit");
@@ -93,8 +94,10 @@ void cmdRfidStats() {
     Serial.printf("frames    ok %lu   bad %lu   repeat %lu   resyncs %lu   noise bytes %lu\n",
                   (unsigned long)s.framesOk, (unsigned long)s.framesBad, (unsigned long)s.framesRepeat,
                   (unsigned long)s.resyncs, (unsigned long)s.noiseBytes);
-    Serial.printf("presence  0x%02X (bit0 line idle HIGH, bit1 frame seen)   last type 0x%02X   raw dump %s\n",
+    Serial.printf("presence  0x%02X (bit0 line idle HIGH at boot, bit1 frame seen)   last type 0x%02X   raw dump %s\n",
                   s.presence, s.lastCardType, rfidGetRawDump() ? "on" : "off");
+    Serial.printf("rx line   GPIO%d is %s right now (%s)   uart %lu 8N1\n", RFID_UART_RX, s.lineHighNow ? "HIGH" : "LOW",
+                  s.lineHighNow ? "reader present and idle" : "no reader signal on this pin", (unsigned long)rfidGetBaud());
 }
 
 bool streq(const char* a, const char* b) { return strcmp(a, b) == 0; }
@@ -127,6 +130,12 @@ void dispatch(char* text) {
     if (streq(a, "rfid")) {
         if (streq(b, "raw"))   { rfidSetRawDump(streq(c, "on")); Serial.printf("raw dump %s\n", rfidGetRawDump() ? "on" : "off"); return; }
         if (streq(b, "stats")) { cmdRfidStats(); return; }
+        if (streq(b, "baud")) {
+            const long n = atol(c);
+            if (n >= 1200 && n <= 460800) { rfidSetBaud((uint32_t)n); }
+            else Serial.println("ERR rfid baud <1200..460800>");
+            return;
+        }
     }
     if (streq(a, "queue") && streq(b, "show")) { Serial.printf("%d event(s) pending HTTP replay\n", eventQueueSize()); return; }
     if (streq(a, "ui")) {
@@ -147,6 +156,8 @@ void consoleInit() {
 }
 
 void consoleService() {
+    rfidBenchService();   // raw dump works in every state, not only when the app polls the reader
+
     const uint32_t now = millis();
     const uint32_t gap = now - lastServiceMs;
     if (lastServiceMs != 0u && gap > maxLoopGapMs) maxLoopGapMs = gap;
