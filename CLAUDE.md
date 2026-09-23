@@ -1,0 +1,127 @@
+# CLAUDE.md — rmg-rfid-station-fw
+
+> Inherits `~/Developer/projects/firmware/CLAUDE.md` (firmware domain) and `~/.claude/CLAUDE.md` (global).
+> This file is the execution contract for the RAK3212 port. Plan of record:
+> `~/.claude/plans/create-a-plan-to-composed-knuth.md` (approved 2026-09-24).
+> Knowledge: `.planning/knowledge/` (architecture, gotchas, sessions) — read before planning.
+> Last updated: 2026-09-24
+
+## 1. What this firmware is
+
+RFID reader stations for the RMG factory-floor ETS. Cooperative state machine in `src/main.cpp`
+(BOOT → CLAIMING → CHECK_MAPPING → UNMAPPED/LOGIN → READY → SCANNING/QC_WAIT, RECONNECTING) over
+HTTP/JSON to the ETS backend, with an NVS queue for offline replay. The `rak3212` build adds a
+LoRaWAN **offline fallback**: scan events that could not be posted are also sent as a compact
+fPort-10 uplink, plus a fPort-11 heartbeat while the link is down (`docs/LORAWAN_PAYLOAD.md`).
+WiFi/HTTP stays primary for claim, mapping, login, heartbeat and events.
+
+## 2. Targets & toolchain
+
+| | `esp32dev` (original PCB) | `rak3212` (new) |
+|---|---|---|
+| MCU | ESP32 (Xtensa LX6, 240 MHz) | ESP32-S3 in RAK3112 module (LX7 dual-core, 240 MHz) |
+| Memory | 4 MB flash, 320 KB SRAM | 16 MB quad flash, 8 MB **octal** PSRAM (`qio_opi`), 512 KB SRAM |
+| Radio | WiFi | WiFi + Semtech SX1262 (module-internal, RadioLib **7.7.1** exact) |
+| USB | CP2102N bridge (`/dev/cu.usbserial-*`) | native USB-Serial-JTAG `303A:1001` (`/dev/cu.usbmodem*`) — ASSUMED until Phase 1 |
+| Partition | `default.csv` (app0/app1 1.25 MB) | `default_16MB.csv` (app0/app1 6.25 MB, nvs 20 KB) |
+| Toolchain | PlatformIO `espressif32@6.7.0` = Arduino core **2.0.16** (`ledcSetup/ledcAttachPin` API), TFT_eSPI 2.5.43, ArduinoJson 7 | same + RadioLib 7.7.1 |
+| Host tests | `platform = native`, Unity 2.6.1 (`pio test -e native`) | |
+
+## 3. Pin map summary (authoritative: `docs/PIN_MAP.md`, code: `src/boards/board_<env>.h` + `platformio.ini`)
+
+### rak3212
+
+| Function | GPIO | Notes |
+|---|---|---|
+| LCD SCLK / MOSI / MISO / CS / RS(DC) / RST | 13 / 11 / 10 / 12 / 38 / 39 | SPI3, TFT_eSPI `USE_HSPI_PORT=1` (mandatory on S3) |
+| LCD backlight | 42 | `TFT_BL=42` HIGH — Phase-2 schematic gate (logic input vs raw 80 mA LED) |
+| Touch CTP_SDA / SCL / RST | 9 / 40 / 41 | FT6336G @0x38, polled (INT unwired) |
+| RFID reader TX → | 18 | UART1 9600 8N1, **receive-only** (`RFID_UART_TX -1`) |
+| Buzzer | 1 | LEDC ch 0 |
+| NeoPixel DIN | 2 | one WS2812-type pixel, core `neopixelWrite()`; 3.3 V supply works (Arif, prior bench) |
+| SX1262 (internal) | 7/5/3/6/8/47/48 (+4) | NSS/SCK/MISO/MOSI/NRESET/DIO1/BUSY; DIO2 drives the RF switch |
+| spare | 14, 17, 21 | 14/21 are ADC-capable |
+| reserved | 0, 43/44, 45/46, 19/20 | BOOT, UART0 (fallback console), strapping, USB |
+
+### esp32dev
+
+LCD 18/23/19/15/2/4 (VSPI) · touch 21/22/25 · MFRC522 5/14/13/12 (HSPI) · buzzer 33 · RGB LED 32/26/27.
+
+## 4. Hardware safety gates (RAK3212) — confirm in writing before touching the board
+
+1. **3.3 V logic only.** The ESP32-S3 is not 5 V tolerant. The reader (5 V) TX and any 5 V
+   peripheral output get a DMM check first: > 3.6 V idle → resistor divider (1.8 kΩ / 3.3 kΩ) or
+   BSS138 before GPIO18.
+2. **Never call `Wire.begin()` / `SPI.begin()` without pins** on this board: variant default SDA =
+   GPIO8 = SX1262 NRESET; default FSPI pins 10–13 = the LCD bus. `SPI.begin(5,3,6,-1)` must run
+   before `radio.begin()` (RadioLib calls a pin-less `begin()` itself).
+3. **Antenna connected before any LoRa TX** (Phase 4 onward). TX power is 10 dBm.
+4. **Backlight**: do not drive the MSP2834 `LED` pin from GPIO42 until the schematic shows a
+   logic input; if it is the raw LED, use an external transistor or tie it to the rail.
+5. **USB monitor must not assert DTR/RTS** (holds the S3 in reset): `monitor_dtr/rts = 0` are in
+   `platformio.ini`; for scripts use the bench-capture ritual (dtr/rts False before open).
+6. **Flash = WRITE only.** No `esptool erase_flash` without an explicit instruction; NVS holds the
+   station token, JWT, mapping, event queue, seq and the LoRa session/nonces. Wiping the LoRa
+   namespace goes through the console (`lora clear-session yes`), nothing else.
+7. Power: USB-only is marginal at peak (WiFi + LoRa TX + 80 mA backlight); use a powered hub or a
+   bench 5 V with common GND. 5 V for the display/reader comes from header J3 (ASSUMED, verify).
+
+## 5. Canonical commands
+
+```bash
+cp include/credentials.h.example include/credentials.h   # once; gitignored; fill WiFi/server/LoRa keys
+
+pio run -e esp32dev && pio run -e esp32dev -t upload && pio device monitor -e esp32dev
+pio run -e rak3212  && pio run -e rak3212  -t upload && pio device monitor -e rak3212   # type `help`
+pio run -e rak3212-bringup -t upload && pio device monitor -e rak3212-bringup           # Phase 1 only
+
+pio test -e native                      # 28 Unity tests (frame parser, LoRa payload)
+node tools/chirpstack/codec_test.js     # 10 codec vectors
+pio device list                         # rak3212 → VID:PID=303A:1001
+```
+
+## 6. Resource budgets
+
+| Resource | Budget (domain) | esp32dev (2026-09-24) | rak3212 (2026-09-24) |
+|---|---|---|---|
+| Flash (app partition) | ≤ 60 % | **82.7 %** (1084421 / 1310720) — pre-existing exception: 1.25 MB OTA slots on a 4 MB part; any growth here needs a size justification | 16.4 % (1072797 / 6553600) |
+| RAM (static) | ≤ 70 % | 15.9 % (52152 B) | 16.6 % (54312 B) |
+| LoRa task stack | 8 KB, high-water > 1.5 KB free | — | measure with `lora show` (Phase 4) |
+| Loop latency | max gap < 50 ms (`sys loop`) | — | measure (Phase 5) |
+| esp32dev regression | RAM/Flash delta ≤ 2 KB vs `pre-rak3212`, 0 `src/` warnings | +32 B / +1988 B | — |
+
+## 7. Phases (PASS/FAIL gates; every phase ends with `pio run -e esp32dev` green)
+
+| Phase | Goal | Gate (exact expectation) | Rollback |
+|---|---|---|---|
+| 0 ✅ | multi-env build, pure modules + tests, docs | `pio test -e native` → `28 test cases: 28 succeeded`; codec `10/10`; esp32dev sizes identical after restructure | `git reset --hard pre-rak3212` |
+| **1 ▶** | board bring-up: USB CDC, PSRAM, NeoPixel, buzzer | `pio device list` shows `303A:1001`; monitor prints `[P1] RAK3212 bring-up chip=ESP32-S3 … flash=16777216 psram=8388608 mac=… deveui=…FFFE…`; pixel cycles R/G/B at ~1 Hz; one beep; `ping` → `echo: ping`. `psram=0` or boot loop = FAIL (`memory_type`) | revert commit |
+| 2 | MSP2834 display + FT6336G touch | `[Display] Initialized (320x240 landscape)`, `[Touch] FT6336 initialized`, `[POST] … Touch=OK`, SELF-TEST list on screen; `ui qc` + `ui touch on` → finger hits PASS/FAIL boxes. Crash on first draw = `USE_HSPI_PORT` missing | revert |
+| 3 | reader frame discovery + parser config | DMM gate on reader TX; `rfid raw on` bytes recorded; `[Main] Scanned UID: X` **equals the backend's enrolled hex** for a known badge; one line per presentation while held; POST `RFID (UART 7941E) OK` | revert; defaults stay vendor values |
+| 4 | SX1262 + OTAA join + heartbeat decoded | `[LoRa] SX1262 up (AS923, TCXO 1.8V, DIO2 RF switch)`; `[LoRa] JOINED AS923 (new session); uplink DR3 (SF9)` < 10 s; `lora hb` → `uplink OK fPort=11 len=20`; ChirpStack shows `object.type="heartbeat"`; reboot → `session restored (no re-join)` | `lora clear-session yes`; revert |
+| 5 | fallback end-to-end + de-dup | backend down: scan → `Queued + LoRa`, ChirpStack `event_id="E_<epoch>_N"`; restore → HTTP replay with the **same** N; AP off: READY stays up, heartbeat `WIFI_DOWN`; 30 min soak, `sys loop` < 50 ms | revert Phase 5 commits |
+| 6 | docs + `FW_VERSION 0.2.0` + esp32dev regression on the real unit | 5 POST lines unchanged, scan/queue/replay unchanged; `pio run -e esp32dev` delta ≤ 2 KB | docs-only |
+
+Phase 3 also fixes three ASSUMED items in `board_rak3212.h`: `RFID_UART_BCC_MODE`, `RFID_UART_ETX`,
+`RFID_UART_HOLD_GAP_MS` (≥ 2× the measured re-emit period) and `RFID_UART_REVERSE_MIFARE_UID`.
+
+## 8. Guardrails
+
+- `include/credentials.h` is gitignored and holds WiFi, server, factory code and the LoRa
+  JoinEUI/AppKey. Never print keys/tokens/JWTs (the console redacts). Scan before pushing.
+- Branch `feat/rak3212-port`; Conventional Commits with the phase in the body; small commits;
+  never force-push; no push without being asked.
+- esp32dev must keep building and behaving identically: pins live only in `board_esp32dev.h`,
+  new code is compiled out through stubs (`lora_link.h`, `serial_console.h`) or `build_src_filter`.
+- Pure modules (`rfid_frame`, `lora_payload`) stay Arduino-free and covered by `pio test -e native`;
+  any payload change updates the golden vectors in the tests, `codec_test.js` and
+  `docs/LORAWAN_PAYLOAD.md` together.
+- Evidence discipline: label PROVEN / ASSUMED / UNKNOWN; the Phase 1–3 gates exist to convert the
+  ASSUMED items (native USB, reader frame/level/byte order, backlight drive) into PROVEN.
+- Backend contract changes (`E_<epoch>_<seq>`, ChirpStack ingest + de-dup) belong to the ETS
+  backend repo; this repo only documents them.
+
+## 9. State
+
+<!-- 2026-09-24: Plan approved (LoRa = offline fallback for scans, UART reader, MSP2834 touch). Phase 0 done on feat/rak3212-port (tag pre-rak3212 = ec547a4): multi-env platformio.ini, board headers, rfid_frame + lora_payload (28 native tests), ChirpStack codec (10 vectors), rfid_uart, lora_link (RadioLib 7.7.1 task), serial console, bring-up sketch, main.cpp fallback + offline mode + E_<epoch>_<seq> ids, docs. esp32dev regression +32 B RAM / +1988 B flash, 0 src warnings. -->
+<!-- 2026-09-24: Arif fixed LCD/touch pins (CS 12, RST 39, RS 38, MOSI 11, SCLK 13, LED 42, MISO 10, CTP 40/41/9), reader TX -> GPIO18 receive-only, NeoPixel instead of RGB LED (DIN GPIO2, my pick). Arif: WS2812B has run from 3.3 V on his bench before — no level shifting planned. Next: Phase 1 bring-up on the bench. -->
