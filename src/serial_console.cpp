@@ -16,6 +16,7 @@
 #include "storage.h"
 #include "display.h"
 #include "touch.h"
+#include "post_results.h"
 #include <WiFi.h>
 #include <esp_system.h>
 
@@ -66,6 +67,12 @@ void cmdSysInfo() {
                   WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);
     Serial.printf("uptime    %lu s\n", (unsigned long)(millis() / 1000u));
     Serial.printf("http q    %d events pending   seq %u\n", eventQueueSize(), storageCurrentSeq());
+    if (g_post.valid) {
+        Serial.printf("post      LCD=%s(id 0x%04X) LED=%s Buzzer=%s RFID=%s(0x%02X) Touch=%s LoRa=%s\n",
+                      g_post.lcd ? "OK" : "FAIL", g_post.lcdId, g_post.led ? "OK" : "FAIL",
+                      g_post.buzzer ? "OK" : "FAIL", g_post.rfid ? "OK" : "FAIL", g_post.rfidVer,
+                      g_post.touch ? "OK" : "FAIL", g_post.lora ? "OK" : "FAIL");
+    }
 }
 
 void cmdLoraShow() {

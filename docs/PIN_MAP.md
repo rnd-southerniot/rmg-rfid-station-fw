@@ -20,9 +20,9 @@ ASSUMED until the Phase-1 gate confirms it).
 | LCD CS | 12 | MSP2834 `LCD_CS` | active low |
 | LCD DC | 38 | MSP2834 `LCD_RS` | command/data |
 | LCD RST | 39 | MSP2834 `LCD_RST` | active low |
-| LCD backlight | 42 | MSP2834 `LED` | `TFT_BL=42`, on = HIGH. **Phase-2 gate:** confirm the module's LED pin is a logic input (onboard transistor). If it is the raw 80 mA LED, do not source it from the GPIO: add an external NPN/MOSFET or tie LED to the rail and set `TFT_BL=-1`. |
-| Touch SDA | 9 | MSP2834 `CTP_SDA` | Wire (FT6336G @ 0x38) |
-| Touch SCL | 40 | MSP2834 `CTP_SCL` | Wire |
+| LCD backlight | 42 | MSP2834 `LED` | `TFT_BL=42`, on = HIGH. **PROVEN (vendor schematic 2022-12-02):** the LED pin drives a BSS138 gate (0 Ω series, 10 kΩ pull-up to 3.3 V) switching the LED cathodes through 2 Ω — a logic/PWM input; floating = backlight ON. |
+| Touch SDA | 9 | MSP2834 `CTP_SDA` | Wire (FT6336G @ 0x38). **Schematic:** header-side 10 kΩ pull-up to the module **VCC** (R4) behind a BSS138 shifter → a 5 V bus if VCC = 5 V (0.1 mA clamp, out of spec). Prefer module VCC = 3.3 V, or move R4/R6 to VCC3.3 on a production board. |
+| Touch SCL | 40 | MSP2834 `CTP_SCL` | Wire; same 10 kΩ pull-up to VCC (R6) |
 | Touch RST | 41 | MSP2834 `CTP_RST` | active low |
 | Touch INT | — | MSP2834 `CTP_INT` | unwired; touch is polled |
 | SD card | — | MSP2834 `SD_CS` | unwired |

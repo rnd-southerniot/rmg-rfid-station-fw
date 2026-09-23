@@ -29,6 +29,9 @@
 #define LED_G_PIN   26
 #define LED_B_PIN   27
 
+// ── LCD self-test: POST keeps reporting "LCD OK" unconditionally (unchanged behaviour) ──
+#define LCD_POST_READ_ID 0
+
 // ── Capabilities ──────────────────────────────────────────
 #define BOARD_HAS_LORA     0   // no radio: lora_link.h provides inline no-op stubs
 #define BOARD_HAS_CONSOLE  0   // no bench console

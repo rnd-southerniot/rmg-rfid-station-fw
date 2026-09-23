@@ -44,7 +44,16 @@
 #define NEOPIXEL_PIN          2
 #define NEOPIXEL_BRIGHTNESS   255
 
+// ── LCD self-test: read the ILI9341 ID over MISO (GPIO10) at boot; the module's SDO comes
+// straight from the panel at 3.3 V (schematic, lcdwiki MSP2833/MSP2834 2022-12-02).
+#define LCD_POST_READ_ID 1
+
 // ── LCD backlight: driven by TFT_eSPI (TFT_BL=42, TFT_BACKLIGHT_ON=HIGH in platformio.ini).
+// PROVEN from the vendor schematic: the LED pin drives a BSS138 gate (0 R series, 10 K pull-up
+// to 3.3 V) that switches the LED cathodes through 2 R — a logic input; floating = backlight ON.
+// NOTE the module's touch I2C lines (CTP_SDA/SCL) carry 10 K pull-ups to the module VCC: with
+// VCC = 5 V that is a 5 V bus on GPIO9/40 (0.1 mA clamp current — out of spec, not destructive).
+// Preferred: module VCC from 3.3 V, or move R4/R6 to VCC3.3 on a production board.
 // If PWM dimming is added later use LEDC channel 2 (timer 1) — channel 1 shares timer 0 with
 // the buzzer and ledcWriteTone() on the buzzer would retune the backlight.
 #define TFT_BL_PIN  42

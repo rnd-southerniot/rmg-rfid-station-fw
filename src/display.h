@@ -3,6 +3,7 @@
 #include "lora_link.h"   // LoraUiState for the status bar
 
 void displayInit();
+uint16_t displayReadId();   // ILI9341 RDID4 over MISO: 0x9341 expected, 0x0000/0xFFFF = no read-back
 void displayBootScreen(const String& status);
 void displayClaimingScreen();
 void displayUnmappedScreen(const String& mac);

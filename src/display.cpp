@@ -31,6 +31,13 @@ void displayInit() {
     LOG_I("[Display] Initialized (320x240 landscape)\n");
 }
 
+uint16_t displayReadId() {
+    // RDID4 (0xD3): dummy, 0x00, 0x93, 0x41. Needs a working MISO line at SPI_READ_FREQUENCY.
+    const uint8_t hi = tft.readcommand8(0xD3, 2);
+    const uint8_t lo = tft.readcommand8(0xD3, 3);
+    return (uint16_t)((hi << 8) | lo);
+}
+
 static void drawHeader(const String& title) {
     tft.fillRect(0, 0, LCD_WIDTH, 30, C_HEADER);
     tft.setTextColor(C_TEXT, C_HEADER);

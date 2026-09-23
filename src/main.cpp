@@ -13,6 +13,7 @@
 #include "ota.h"
 #include "lora_link.h"
 #include "serial_console.h"
+#include "post_results.h"
 
 // credentials.h provides FACTORY_CODE
 #include "credentials.h"
@@ -54,6 +55,8 @@ static unsigned long lastStatusBar = 0;
 // Scan debounce
 static String lastScannedUid;
 static unsigned long lastScanTime = 0;
+
+PostResults g_post = {};
 
 // Identity of the last generated event, shared by the HTTP event_id and the LoRa payload
 static uint32_t lastEpoch = 0;
@@ -199,9 +202,27 @@ static void handleBoot() {
     bool loraOk = loraInit();   // no-op (false) on boards without a radio
     (void)loraOk;
 
+    bool lcdOk = true;
+    uint16_t lcdId = 0;
+#if LCD_POST_READ_ID
+    lcdId = displayReadId();
+    lcdOk = (lcdId == 0x9341);
+    LOG_I("[Display] ILI9341 RDID4 = 0x%04X (%s)\n", lcdId, lcdOk ? "OK" : "unexpected");
+#endif
+
+    g_post.valid = true;
+    g_post.lcd = lcdOk;
+    g_post.lcdId = lcdId;
+    g_post.led = true;
+    g_post.buzzer = true;
+    g_post.rfid = rfidOk;
+    g_post.rfidVer = rfidVer;
+    g_post.touch = touchOk;
+    g_post.lora = loraOk;
+
     // Show POST results
     displayPostScreen();
-    displayPostResult(0, "LCD", true);
+    displayPostResult(0, "LCD", lcdOk);
     displayPostResult(1, "LED (" LED_NAME ")", true);
     displayPostResult(2, "Buzzer", true);
     displayPostResult(3, "RFID (" RFID_READER_NAME ")", rfidOk);
