@@ -76,17 +76,25 @@ then only while the link is down: immediately on the down-transition and every 5
 
 Run `pio test -e native` and `node tools/chirpstack/codec_test.js` after any change.
 
-## ChirpStack v4 setup (bench server `10.10.8.140`, tenant `52f14cd4-…`, AS923-1)
+## ChirpStack v4 setup (bench server `10.10.8.140`, tenant `52f14cd4-…`, region config `as923_1`)
 
-1. Device profile **RMG RFID station**: region AS923, MAC version 1.0.4, Regional parameters
-   RP002-1.0.3, Class A, ADR disabled (the node pins DR3), payload codec = "Custom JavaScript"
-   with the contents of `tools/chirpstack/rfid_station_codec.js`.
-2. Application, e.g. **rmg-rfid-stations**.
-3. Device: DevEUI from the bench console (`lora show`), JoinEUI as compiled, AppKey = the value
-   in `credentials.h` (never commit it). Name the device after the station MAC.
+`tools/chirpstack/provision_bench.sh <DevEUI>` does all of this over gRPC (grpcurl, token from
+`~/.config/siot/chirpstack-dev.env`) and writes the generated AppKey into the gitignored
+`include/credentials.h`, printing only a fingerprint:
+
+1. Device profile **rmg-rfid-station**: region AS923 / `as923_1`, MAC 1.0.4, RP002-1.0.3,
+   Class A, OTAA, codec = `tools/chirpstack/rfid_station_codec.js`, expected uplink interval
+   86400 s (LoRa is silent while WiFi is up), device-status requests off. The node pins DR3 and
+   disables ADR itself.
+2. Application **rmg-rfid-stations**.
+3. Device `rfid-station-<last 6 of DevEUI>`, JoinEUI `0000000000000000`, keys nwkKey = appKey
+   (LoRaWAN 1.0.x). The script refuses to overwrite an existing device.
 4. If a device is deleted and re-created, the node restores its stale session and reports
    "uplink OK" while the server logs `No device-session exists` — run `lora clear-session yes` on
-   the console (or enable "Reset frame counters" is **not** enough).
+   the console ("Reset frame counters" on the server is **not** enough).
+
+Bench inventory 2026-09-24 (read-only): gateway `a568b-gw-108` (`fa8e19fffe32c51e`) ONLINE,
+existing profile `siot-dev-dp` (AS923, 1.0.3) and app `siot-dev-app` left untouched.
 
 ## Credentials
 
