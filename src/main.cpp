@@ -11,6 +11,8 @@
 #include "led_buzzer.h"
 #include "event_queue.h"
 #include "ota.h"
+#include "lora_link.h"
+#include "serial_console.h"
 
 // credentials.h provides FACTORY_CODE
 #include "credentials.h"
@@ -36,6 +38,9 @@ static String lineId;
 static String stationType;
 static String mac;
 static unsigned long lastUserActivityAt = 0; // for inactivity timeout
+static String operatorUid;          // badge UID of the logged-in operator (LoRa payload only)
+static bool   readyOffline = false; // READY running without WiFi (LoRa fallback mode)
+static int    httpFailStreak = 0;   // consecutive HTTP failures while WiFi is up
 
 // Timers
 static unsigned long lastHeartbeat = 0;
@@ -50,8 +55,9 @@ static unsigned long lastStatusBar = 0;
 static String lastScannedUid;
 static unsigned long lastScanTime = 0;
 
-// Event counter for unique IDs
-static uint32_t eventCounter = 0;
+// Identity of the last generated event, shared by the HTTP event_id and the LoRa payload
+static uint32_t lastEpoch = 0;
+static uint16_t lastSeq = 0;
 
 // ── Forward declarations ──────────────────────────────────
 static void handleEventResult(const String& uid, const String& eventType,
@@ -60,10 +66,63 @@ static void handleEventResult(const String& uid, const String& eventType,
 // ── Helpers ───────────────────────────────────────────────
 
 static String generateEventId() {
-    eventCounter++;
+    // "E_<epoch>_<seq>": the same (epoch, seq) pair travels in the LoRa fPort-10 frame, so the
+    // backend can de-duplicate an HTTP replay against a LoRa copy of the same scan.
+    lastEpoch = ntpGetEpoch();
+    lastSeq = storageNextSeq();
     char buf[40];
-    snprintf(buf, sizeof(buf), "E_%lu_%u", millis(), eventCounter);
+    snprintf(buf, sizeof(buf), "E_%lu_%u", (unsigned long)lastEpoch, (unsigned)lastSeq);
     return String(buf);
+}
+
+// LoRa fallback: keep scanning without WiFi when the radio is joined and both the station
+// mapping and the operator session are cached. Always false on boards without a radio.
+static bool offlineModeAllowed() {
+    return loraIsJoined() && !stationId.isEmpty() && !userJwt.isEmpty();
+}
+
+static void updateLoraAppInfo() {
+    LoraAppInfo info;
+    info.queuedHttpEvents = (uint16_t)eventQueueSize();
+    info.lastSeq = lastSeq;
+    info.operatorLoggedIn = !userJwt.isEmpty();
+    info.stationMapped = !stationId.isEmpty();
+    info.wifiAssociated = wifiIsConnected();
+    info.wifiRssi = wifiGetRssi();
+    loraUpdateAppInfo(info);
+}
+
+static void refreshStatusBar() {
+    updateLoraAppInfo();
+    displayStatusBar(wifiIsConnected(), stationId, ntpGetTimeStr(), loraUiState());
+}
+
+// Track backend reachability while WiFi is up (WiFi-down is reported separately).
+static void noteHttpResult(bool ok) {
+    if (ok) {
+        httpFailStreak = 0;
+        if (wifiIsConnected()) loraSetLinkDown(false, 0);
+        return;
+    }
+    if (++httpFailStreak >= 2 && wifiIsConnected()) {
+        loraSetLinkDown(true, LORA_OFFLINE_SERVER_UNREACHABLE);
+    }
+}
+
+static void clearOperatorSession() {
+    storageClearJwt();
+    userJwt = "";
+    operatorUid = "";
+}
+
+// Post over HTTP when WiFi is up; otherwise report a network error straight away so the
+// event is queued for replay (and mirrored over LoRa) without a blocking connect attempt.
+static EventResult postEventOrQueue(const String& eventId, const String& ts,
+                                    const String& uid, const String& eventType) {
+    if (!wifiIsConnected()) return EVENT_NETWORK_ERROR;
+    EventResult res = apiPostEvent(token, userJwt, eventId, ts, uid, eventType);
+    noteHttpResult(res != EVENT_NETWORK_ERROR);
+    return res;
 }
 
 static void flushEventQueue() {
@@ -85,8 +144,7 @@ static void flushEventQueue() {
             // Operator session no longer valid — re-queue and force re-login
             eventQueuePush(evt.eventId, evt.ts, evt.rfidUid, evt.eventType);
             LOG_W("[Main] Queue flush: user session invalid, stop flushing\n");
-            storageClearJwt();
-            userJwt = "";
+            clearOperatorSession();
             state = STATE_LOGIN;
             break;
         } else if (res == EVENT_STATION_UNAUTHORIZED) {
@@ -122,6 +180,7 @@ static void handleBoot() {
     touchInit();
     storageInit();
     eventQueueInit();
+    consoleInit();
 
     // ── Power-on self-test ──
     displayBootScreen("Self-test...");
@@ -137,19 +196,37 @@ static void handleBoot() {
     uint8_t rfidVer = rfidGetVersion();
     bool rfidOk = (rfidVer != 0x00 && rfidVer != 0xFF);
     bool touchOk = touchIsConnected();
+    bool loraOk = loraInit();   // no-op (false) on boards without a radio
+    (void)loraOk;
 
     // Show POST results
     displayPostScreen();
     displayPostResult(0, "LCD", true);
     displayPostResult(1, "LED (R/G/B)", true);
     displayPostResult(2, "Buzzer", true);
-    displayPostResult(3, "RFID (MFRC522)", rfidOk);
+    displayPostResult(3, "RFID (" RFID_READER_NAME ")", rfidOk);
     displayPostResult(4, "Touch (FT6336)", touchOk);
+#if BOARD_HAS_LORA
+    displayPostResult(5, "LoRa (SX1262)", loraOk);
+    LOG_I("[POST] LoRa=%s\n", loraOk ? "OK" : "FAIL");
+#endif
+#ifdef BOARD_HAS_PSRAM
+    LOG_I("[Main] PSRAM: %u KB\n", (unsigned)(ESP.getPsramSize() / 1024));
+#endif
 
     LOG_I("[POST] LCD=OK LED=OK Buzzer=OK RFID=%s Touch=%s\n",
         rfidOk ? "OK" : "FAIL", touchOk ? "OK" : "FAIL");
 
     delay(1500);
+
+    // Restore the persisted identity before touching the network, so a boot without WiFi can
+    // still run the LoRa fallback and a later reconnect does not re-claim needlessly. The JWT
+    // is loaded eagerly but only verified lazily on the next /events POST.
+    token = storageLoadToken();
+    userJwt = storageLoadJwt();
+    stationId = storageLoadStationId();
+    lineId = storageLoadLineId();
+    stationType = storageLoadType();
 
     displayBootScreen("Connecting to WiFi...");
     ledBlue();
@@ -159,6 +236,7 @@ static void handleBoot() {
     if (!wifiIsConnected()) {
         displayBootScreen("WiFi failed, retrying...");
         ledRed();
+        loraSetLinkDown(true, LORA_OFFLINE_BOOT_NO_WIFI);
         state = STATE_RECONNECTING;
         return;
     }
@@ -174,10 +252,6 @@ static void handleBoot() {
     otaHostname.replace(":", "");
     otaInit(otaHostname);
 
-    // Load saved tokens. JWT is loaded eagerly but its validity is only
-    // verified lazily on the next /events POST — saves a probe round trip.
-    token = storageLoadToken();
-    userJwt = storageLoadJwt();
     if (!userJwt.isEmpty()) {
         LOG_D("[Main] Loaded saved user JWT (%u chars)\n", (unsigned)userJwt.length());
     }
@@ -241,7 +315,7 @@ static void handleCheckMapping() {
                 stationId.c_str(), lineId.c_str(), stationType.c_str());
         } else {
             displayReadyScreen(stationId, lineId, stationType);
-            displayStatusBar(wifiIsConnected(), stationId, ntpGetTimeStr());
+            refreshStatusBar();
             ledGreen();
             delay(500);
             ledOff();
@@ -275,9 +349,33 @@ static void handleLogin() {
     unsigned long now = millis();
 
     if (!wifiIsConnected()) {
-        state = STATE_RECONNECTING;
+        if (!(loraIsJoined() && !stationId.isEmpty())) {
+            state = STATE_RECONNECTING;
+            return;
+        }
+        // LoRa fallback: login needs the backend, so keep the login screen with an offline
+        // note, retry WiFi in the background, and refuse taps politely.
+        loraSetLinkDown(true, LORA_OFFLINE_WIFI_DOWN);
+        displayLoginScreen(stationId, true);
+        if (now - lastWifiRetry >= WIFI_RETRY_INTERVAL_MS) {
+            lastWifiRetry = now;
+            wifiReconnect();
+        }
+        if (rfidCardPresent()) {
+            String uid = rfidReadUid();
+            if (!uid.isEmpty() && !(uid == lastScannedUid && (now - lastScanTime) < SCAN_DEBOUNCE_MS)) {
+                lastScannedUid = uid;
+                lastScanTime = now;
+                beepWarning();
+                ledYellow();
+                displayScanResult(uid, "LOGIN", false, "Offline - no login");
+                scanResultShownAt = now;
+                state = STATE_SCANNING;
+            }
+        }
         return;
     }
+    displayLoginScreen(stationId, false);   // drops the offline note once WiFi is back
 
     // Keep the login screen up. No heartbeat skipping — station heartbeat
     // does not require user auth, so keep it running so the device stays
@@ -285,7 +383,9 @@ static void handleLogin() {
     if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
         lastHeartbeat = now;
         String ts = ntpGetIsoTimestamp();
-        if (!apiHeartbeat(token, ts)) {
+        bool hbOk = apiHeartbeat(token, ts);
+        noteHttpResult(hbOk);
+        if (!hbOk) {
             LOG_W("[Main] Heartbeat failed (login screen)\n");
         }
     }
@@ -293,7 +393,7 @@ static void handleLogin() {
     // Re-paint login screen periodically so status bar stays fresh.
     if (now - lastStatusBar >= 2000) {
         lastStatusBar = now;
-        displayStatusBar(wifiIsConnected(), stationId, ntpGetTimeStr());
+        refreshStatusBar();
     }
 
     // Wait for badge tap
@@ -313,6 +413,7 @@ static void handleLogin() {
         case LOGIN_OK:
             userJwt = lr.token;
             storageSaveJwt(userJwt);
+            operatorUid = uid;
             beepSuccess();
             ledGreen();
             displayScanResult(uid, "LOGIN", true, "Logged In");
@@ -355,19 +456,39 @@ static void handleLogin() {
 static void handleReady() {
     unsigned long now = millis();
 
-    // Check WiFi
+    // Check WiFi. With a joined LoRa link and a cached mapping + operator session the station
+    // keeps scanning offline: events queue for HTTP replay and a copy goes out over LoRa.
     if (!wifiIsConnected()) {
-        state = STATE_RECONNECTING;
-        return;
+        if (!offlineModeAllowed()) {
+            state = STATE_RECONNECTING;
+            return;
+        }
+        if (!readyOffline) {
+            readyOffline = true;
+            LOG_W("[Main] WiFi down — READY continues in LoRa fallback mode\n");
+            loraSetLinkDown(true, LORA_OFFLINE_WIFI_DOWN);
+            refreshStatusBar();
+        }
+        if (now - lastWifiRetry >= WIFI_RETRY_INTERVAL_MS) {
+            lastWifiRetry = now;
+            wifiReconnect();
+        }
+    } else if (readyOffline) {
+        readyOffline = false;
+        LOG_I("[Main] WiFi back — leaving LoRa fallback mode\n");
+        loraSetLinkDown(false, 0);
+        if (eventQueueSize() > 0) {
+            flushEventQueue();
+        }
     }
+    const bool online = wifiIsConnected();
 
     // Inactivity logout: if no scan activity for INACTIVITY_TIMEOUT_MS,
     // clear the JWT and return to login screen. 0 disables.
     if (INACTIVITY_TIMEOUT_MS > 0 && !userJwt.isEmpty()
         && (now - lastUserActivityAt) >= INACTIVITY_TIMEOUT_MS) {
         LOG_W("[Main] Inactivity timeout — logging out\n");
-        storageClearJwt();
-        userJwt = "";
+        clearOperatorSession();
         beepWarning();
         ledYellow();
         delay(200);
@@ -378,16 +499,18 @@ static void handleReady() {
     }
 
     // Heartbeat
-    if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
+    if (online && now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
         lastHeartbeat = now;
         String ts = ntpGetIsoTimestamp();
-        if (!apiHeartbeat(token, ts)) {
+        bool hbOk = apiHeartbeat(token, ts);
+        noteHttpResult(hbOk);
+        if (!hbOk) {
             LOG_W("[Main] Heartbeat failed\n");
         }
     }
 
     // Mapping poll
-    if (now - lastMappingPoll >= MAPPING_POLL_INTERVAL_MS) {
+    if (online && now - lastMappingPoll >= MAPPING_POLL_INTERVAL_MS) {
         lastMappingPoll = now;
         StationInfo info = apiGetMe(token);
         if (info.ok && info.mapped) {
@@ -405,11 +528,11 @@ static void handleReady() {
     // Update status bar every 2s
     if (now - lastStatusBar >= 2000) {
         lastStatusBar = now;
-        displayStatusBar(wifiIsConnected(), stationId, ntpGetTimeStr());
+        refreshStatusBar();
     }
 
     // Flush offline queue periodically
-    if (now - lastQueueFlush >= 60000 && eventQueueSize() > 0) {
+    if (online && now - lastQueueFlush >= 60000 && eventQueueSize() > 0) {
         lastQueueFlush = now;
         flushEventQueue();
     }
@@ -442,7 +565,7 @@ static void handleReady() {
             String eventId = generateEventId();
             String ts = ntpGetIsoTimestamp();
 
-            EventResult res = apiPostEvent(token, userJwt, eventId, ts, uid, "COMPLETE");
+            EventResult res = postEventOrQueue(eventId, ts, uid, "COMPLETE");
             handleEventResult(uid, "COMPLETE", res, eventId, ts);
         }
     }
@@ -465,16 +588,14 @@ static void handleEventResult(const String& uid, const String& eventType,
             displayScanResult(uid, eventType, true, "Logged Out");
             ledBlue();
             beepSuccess();
-            storageClearJwt();
-            userJwt = "";
+            clearOperatorSession();
             // handleScanning will route to STATE_LOGIN once result times out.
             break;
         case EVENT_USER_TOKEN_INVALID:
             displayScanResult(uid, eventType, false, "Session Expired");
             ledYellow();
             beepWarning();
-            storageClearJwt();
-            userJwt = "";
+            clearOperatorSession();
             // handleScanning will route to STATE_LOGIN once result times out.
             break;
         case EVENT_UNMAPPED:
@@ -497,12 +618,17 @@ static void handleEventResult(const String& uid, const String& eventType,
             ledRed();
             beepError();
             break;
-        case EVENT_NETWORK_ERROR:
-            displayScanResult(uid, eventType, false, "Queued (offline)");
+        case EVENT_NETWORK_ERROR: {
+            eventQueuePush(eventId, ts, uid, eventType);
+            // LoRa fallback: a copy goes out now; the HTTP replay later carries the same seq.
+            bool viaLora = loraIsJoined() &&
+                           loraEnqueueScan(uid, eventType, lastEpoch, lastSeq,
+                                           stationType == "qc", false, operatorUid);
+            displayScanResult(uid, eventType, false, viaLora ? "Queued + LoRa" : "Queued (offline)");
             ledYellow();
             beepWarning();
-            eventQueuePush(eventId, ts, uid, eventType);
             break;
+        }
         case EVENT_INVALID:
             displayScanResult(uid, eventType, false, "Invalid Data");
             ledRed();
@@ -550,7 +676,7 @@ static void handleQcWait() {
             String eventId = generateEventId();
             String ts = ntpGetIsoTimestamp();
 
-            EventResult res = apiPostEvent(token, userJwt, eventId, ts, pendingRfidUid, eventType);
+            EventResult res = postEventOrQueue(eventId, ts, pendingRfidUid, eventType);
             handleEventResult(pendingRfidUid, eventType, res, eventId, ts);
         }
     }
@@ -559,15 +685,37 @@ static void handleQcWait() {
 static void handleReconnecting() {
     unsigned long now = millis();
 
+    loraSetLinkDown(true, LORA_OFFLINE_WIFI_DOWN);
+
+    // LoRa fallback: with a joined link and a cached mapping, run the station offline instead of
+    // parking here (READY if an operator session is cached, else the LOGIN screen with a note).
+    // Those handlers keep retrying WiFi.
+    if (offlineModeAllowed()) {
+        LOG_W("[Main] Entering READY in LoRa fallback mode (WiFi down)\n");
+        displayReadyScreen(stationId, lineId, stationType);
+        ledOff();
+        state = STATE_READY;
+        lastUserActivityAt = now;
+        lastStatusBar = 0;
+        return;
+    }
+    if (loraIsJoined() && !stationId.isEmpty() && userJwt.isEmpty()) {
+        displayLoginScreen(stationId, true);
+        ledBlue();
+        state = STATE_LOGIN;
+        return;
+    }
+
     if (now - lastWifiRetry >= WIFI_RETRY_INTERVAL_MS) {
         lastWifiRetry = now;
-        displayBootScreen("Reconnecting WiFi...");
+        displayBootScreen(loraIsJoined() ? "Reconnecting WiFi... (LoRa joined)" : "Reconnecting WiFi...");
         ledRed();
         wifiReconnect();
 
         if (wifiIsConnected()) {
             LOG_I("[Main] WiFi reconnected\n");
             ledOff();
+            loraSetLinkDown(false, 0);
 
             // Flush queued events
             if (eventQueueSize() > 0) {
@@ -588,12 +736,16 @@ static void handleReconnecting() {
 
 void setup() {
     Serial.begin(115200);
+#if ARDUINO_USB_CDC_ON_BOOT
+    Serial.setTxTimeoutMs(5);   // USB CDC: never let LOG_* stall the loop when no host is attached
+#endif
     delay(100);
     state = STATE_BOOT;
 }
 
 void loop() {
     otaHandle();
+    consoleService();
 
     switch (state) {
         case STATE_BOOT:          handleBoot(); break;

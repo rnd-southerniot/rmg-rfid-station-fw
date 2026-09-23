@@ -20,6 +20,7 @@ enum Screen { SCR_NONE, SCR_BOOT, SCR_CLAIMING, SCR_UNMAPPED, SCR_LOGIN, SCR_REA
 static Screen currentScreen = SCR_NONE;
 static String currentReadyId;
 static String currentReadyType;
+static bool currentLoginOffline = false;
 
 void displayInit() {
     tft.init();
@@ -125,8 +126,8 @@ void displayReadyScreen(const String& stationId, const String& lineName, const S
     currentReadyType = type;
 }
 
-void displayLoginScreen(const String& stationId) {
-    if (currentScreen == SCR_LOGIN && currentReadyId == stationId) {
+void displayLoginScreen(const String& stationId, bool offlineNote) {
+    if (currentScreen == SCR_LOGIN && currentReadyId == stationId && currentLoginOffline == offlineNote) {
         return;
     }
 
@@ -143,9 +144,19 @@ void displayLoginScreen(const String& stationId) {
     tft.setTextColor(C_DIM, C_BG);
     tft.drawString("Station: " + stationId, LCD_WIDTH / 2, 175);
 
+#if BOARD_HAS_LORA
+    if (offlineNote) {
+        // LoRa fallback build only: login needs the backend, which is unreachable right now.
+        tft.setTextColor(C_YELLOW, C_BG);
+        tft.drawString("Offline - login needs WiFi", LCD_WIDTH / 2, 205);
+        tft.setTextColor(C_TEXT, C_BG);
+    }
+#endif
+
     currentScreen = SCR_LOGIN;
     currentReadyId = stationId;
     currentReadyType = "";
+    currentLoginOffline = offlineNote;
 }
 
 void displayScanResult(const String& rfidUid, const String& eventType, bool success, const String& message) {
@@ -235,7 +246,7 @@ void displayPostResult(int line, const String& label, bool pass) {
     tft.setTextColor(C_TEXT, C_BG);
 }
 
-void displayStatusBar(bool wifiOk, const String& stationId, const String& timeStr) {
+void displayStatusBar(bool wifiOk, const String& stationId, const String& timeStr, LoraUiState lora) {
     // Only draw on ready screen
     if (currentScreen != SCR_READY) return;
 
@@ -244,6 +255,16 @@ void displayStatusBar(bool wifiOk, const String& stationId, const String& timeSt
     tft.setTextColor(wifiOk ? C_GREEN : C_RED, C_HEADER);
     tft.setTextDatum(ML_DATUM);
     tft.drawString(wifiOk ? "WiFi OK" : "WiFi X", 5, LCD_HEIGHT - 10);
+
+#if BOARD_HAS_LORA
+    if (lora != LORA_UI_NONE) {
+        // LoRa fallback build only: join state next to the WiFi indicator.
+        tft.setTextColor(lora == LORA_UI_JOINED ? C_GREEN : lora == LORA_UI_JOINING ? C_YELLOW : C_RED, C_HEADER);
+        tft.drawString(lora == LORA_UI_JOINED ? "LoRa OK" : lora == LORA_UI_JOINING ? "LoRa ..." : "LoRa X", 60, LCD_HEIGHT - 10);
+    }
+#else
+    (void)lora;
+#endif
 
     tft.setTextColor(C_DIM, C_HEADER);
     tft.setTextDatum(MC_DATUM);
