@@ -29,7 +29,7 @@
 #define RFID_UART_BAUD      115200  // PROVEN (clean frames only at this rate)
 #define RFID_UART_FORMAT    RFID_FORMAT_ASCII_HEX
 #define RFID_UART_INTERBYTE_MS   50   // gap that aborts a partial frame
-#define RFID_UART_HOLD_GAP_MS    800  // same UID within this window = card still held (Phase 3: >= 2x re-emit period)
+#define RFID_UART_HOLD_GAP_MS    800  // PROVEN 2026-09-24: the module emits ONE frame per card entry, none while held; 800 ms only guards duplicate bursts
 #define RFID_UART_BCC_MODE       0    // binary format only
 #define RFID_UART_ETX            0x03 // PROVEN: 0x03 follows CR LF
 #define RFID_UART_STRIP_MIFARE_PAD 1  // binary format only
