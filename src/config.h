@@ -1,31 +1,20 @@
 #pragma once
 
-// ── LCD (ILI9341 on VSPI) ─────────────────────────────────
+// ── Board selection ───────────────────────────────────────
+// Pins and board capabilities live in src/boards/board_<name>.h, chosen by the -DBOARD_*
+// build flag of the PlatformIO environment (see platformio.ini and docs/PIN_MAP.md).
+#if defined(BOARD_RAK3212)
+  #include "boards/board_rak3212.h"
+#elif defined(BOARD_ESP32DEV)
+  #include "boards/board_esp32dev.h"
+#else
+  #error "Select a board: build with -DBOARD_ESP32DEV=1 or -DBOARD_RAK3212=1"
+#endif
+
+// ── LCD (ILI9341 over SPI) ────────────────────────────────
 // Pin config handled by TFT_eSPI build flags in platformio.ini
 #define LCD_WIDTH   320
 #define LCD_HEIGHT  240
-
-// ── Touch (FT6336 on I2C) ─────────────────────────────────
-#define TOUCH_SDA   21
-#define TOUCH_SCL   22
-#define TOUCH_RST   25
-#define TOUCH_ADDR  0x38
-
-// ── RFID (MFRC522 on HSPI) ───────────────────────────────
-#define RFID_SS     5
-#define RFID_SCK    14
-#define RFID_MOSI   13
-#define RFID_MISO   12
-#define RFID_RST    -1   // Not connected
-
-// ── Buzzer (PWM) ──────────────────────────────────────────
-#define BUZZER_PIN      33
-#define BUZZER_FREQ_HZ  2700  // Resonant frequency for piezo buzzer
-
-// ── RGB LED (active low / common cathode) ─────────────────
-#define LED_R_PIN   32
-#define LED_G_PIN   26
-#define LED_B_PIN   27
 
 // ── Timing constants ──────────────────────────────────────
 #define HEARTBEAT_INTERVAL_MS    60000   // 60 seconds
