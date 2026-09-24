@@ -28,6 +28,8 @@
 #include <esp_rom_gpio.h>
 #include <soc/gpio_struct.h>
 #include <soc/gpio_sig_map.h>
+#include <soc/gpio_periph.h>
+#include <soc/io_mux_reg.h>
 #include "config.h"
 
 #define BUZZER_CHANNEL 0
@@ -192,6 +194,7 @@ void setup() {
 #endif
     setLed(0, 0, 0);            // core driver: first call allocates the RMT channel
     coreSig = outSel(pixPin);   // remember which matrix signal the core routed to the pin
+    PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[pixPin]);   // input buffer on so `pad=` reads the real pin level (RMT set OUTPUT only)
 
     ledcSetup(BUZZER_CHANNEL, BUZZER_FREQ_HZ, 8);
     ledcAttachPin(BUZZER_PIN, BUZZER_CHANNEL);
