@@ -14,6 +14,9 @@
  *   pix bang          cycle with a cycle-counted bit-bang driver (no RMT involved)
  *   pix pin <n>       move the pixel to GPIO n at runtime (rmt/bang/pad/gpio only)
  *   pix rgb r g b     hold one colour (0-255 each) with the current driver
+ *   pix inv on|off    invert the pin in the GPIO matrix — for an external NPN inverter stage
+ *                     (NPN base via 1 k from GPIO17, collector to Din with 1 k pull-up to 5 V) that
+ *                     gives the pixel a full 5 V data swing; the inversion restores the polarity
  *   pix off           pixel off, cycling stopped
  * Default at boot: `core` on NEOPIXEL_PIN, cycling at ~1 Hz — identical to the Phase-1 gate.
  */
@@ -39,11 +42,14 @@ static uint8_t    ledStep = 0;
 static uint32_t   lastLedMs = 0;
 static uint32_t   lastBannerMs = 0;
 static uint32_t   coreSig = 0;          // GPIO-matrix signal the core's neopixelWrite() routed
+static bool       invert = false;       // GPIO-matrix output inversion (external NPN inverter)
 static rmt_obj_t* rmtCh = nullptr;
 static String     rx;
 
 // ── pad helpers ──────────────────────────────────────────────────────────────────────────
 static uint32_t outSel(uint8_t pin)  { return GPIO.func_out_sel_cfg[pin].func_sel; }
+static uint32_t outInv(uint8_t pin)  { return GPIO.func_out_sel_cfg[pin].inv_sel; }
+static void     applyInvert(uint8_t pin) { GPIO.func_out_sel_cfg[pin].inv_sel = invert ? 1u : 0u; }
 static uint32_t outEn(uint8_t pin)   { return pin < 32 ? (GPIO.enable >> pin) & 1u : (GPIO.enable1.val >> (pin - 32)) & 1u; }
 static int      padRead(uint8_t pin) { return gpio_get_level((gpio_num_t)pin); }
 
@@ -54,9 +60,9 @@ static void routeToGpio(uint8_t pin) {
 }
 
 static void status() {
-    Serial.printf("[pix] pin=GPIO%u drv=%s cycling=%d out_sel=%lu (gpio=%u rmt0=%u coreSig=%lu) oe=%lu pad=%d\n",
+    Serial.printf("[pix] pin=GPIO%u drv=%s cycling=%d out_sel=%lu (gpio=%u rmt0=%u coreSig=%lu) oe=%lu inv=%lu pad=%d\n",
                   pixPin, drvName[drv], (int)cycling, (unsigned long)outSel(pixPin), SIG_GPIO_OUT_IDX,
-                  RMT_SIG_OUT0_IDX, (unsigned long)coreSig, (unsigned long)outEn(pixPin), padRead(pixPin));
+                  RMT_SIG_OUT0_IDX, (unsigned long)coreSig, (unsigned long)outEn(pixPin), (unsigned long)outInv(pixPin), padRead(pixPin));
 }
 
 // ── drivers ──────────────────────────────────────────────────────────────────────────────
@@ -130,6 +136,7 @@ static void selectDriver(Drv d) {
         case DRV_GPIO: routeToGpio(pixPin); break;
         default: break;
     }
+    applyInvert(pixPin);   // gpio_reset_pin()/re-routing clears the matrix inversion bit
     Serial.printf("[pix] driver=%s\n", drvName[drv]);
     status();
 }
@@ -154,13 +161,14 @@ static void handle(const String& line) {
     else if (!strcmp(a, "core"))   selectDriver(DRV_CORE);
     else if (!strcmp(a, "rmt"))    selectDriver(DRV_RMT);
     else if (!strcmp(a, "bang"))   selectDriver(DRV_BANG);
+    else if (!strcmp(a, "inv"))    { invert = line.indexOf(" on") > 0; applyInvert(pixPin); Serial.printf("[pix] GPIO%u matrix inversion %s\n", pixPin, invert ? "ON (use an NPN inverter to 5 V)" : "off"); status(); }
     else if (!strcmp(a, "off"))    { cycling = false; setLed(0, 0, 0); Serial.println("[pix] off"); }
     else if (!strcmp(a, "rgb"))    { cycling = false; setLed((uint8_t)v1, (uint8_t)v2, (uint8_t)v3); Serial.printf("[pix] rgb %d %d %d via %s\n", v1, v2, v3, drvName[drv]); }
     else if (!strcmp(a, "pin") && v1 >= 0 && v1 < 48) {
         if (drv == DRV_CORE) drv = DRV_NONE;
         pixPin = (uint8_t)v1; Serial.printf("[pix] pin=GPIO%u (select rmt/bang/gpio next)\n", pixPin); status();
     }
-    else Serial.println("[pix] commands: status pad gpio core rmt bang pin <n> rgb r g b off");
+    else Serial.println("[pix] commands: status pad gpio core rmt bang pin <n> rgb r g b inv on|off off");
 }
 
 static void banner() {
