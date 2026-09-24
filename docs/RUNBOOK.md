@@ -43,7 +43,7 @@ Keys, tokens and JWTs are never printed.
 | Phase | Gate | Status |
 |---|---|---|
 | 0 host | `36 test cases: 36 succeeded`; codec `10/10`; esp32dev RAM/Flash identical after restructure | PASS 2026-09-24 |
-| 1 bring-up | `pio device list` → `303A:1001`; `[P1] … flash=16777216 psram=8386295 … deveui=…FFFE…`; `ping` echoed; pixel cycles, one beep | PASS (pixel/beep pending, NeoPixel not wired) |
+| 1 bring-up | `pio device list` → `303A:1001`; `[P1] … flash=16777216 psram=8386295 … deveui=…FFFE…`; `ping` echoed; pixel cycles, one beep | PASS (NeoPixel wired to GPIO17 2026-09-24, bring-up sketch runs on it; R/G/B cycle + beep = operator visual, pending) |
 | 2 display/touch | `[Display] ILI9341 RDID4 = 0x9341 (OK)`; `[Touch] FT6336 initialized`; `ui touch on` → PASS/FAIL hits | PASS 2026-09-24 |
 | 3 reader | `@115200 8N1 (ASCII frames), idle line HIGH`; `rfid raw on` → `02 34 30 35 30 42 30 34 37 0D 0A 03` → `frame ok NEW uid=4050B047`; one frame per card entry | frame PASS; byte order vs ETS enrolment pending |
 | 4 LoRa | `[LoRa] SX1262 up (AS923, TCXO 1.8V, DIO2 RF switch)`; `JOINED AS923 (new session); uplink DR3 (SF9)`; `lora hb` → `uplink OK fPort=11 len=20`; decoded heartbeat in ChirpStack; reboot → `session restored` | radio detected; join pending (needs antenna + provisioning) |

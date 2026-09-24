@@ -35,8 +35,8 @@ Two supported boards; pins are in [docs/PIN_MAP.md](docs/PIN_MAP.md) and `src/bo
 |---|---|---|---|---|
 | LCD_CS | 12 | | RFID reader TX → | 18 (receive-only; level-shift if 5 V TTL) |
 | LCD_RST | 39 | | Buzzer | 1 |
-| LCD_RS (DC) | 38 | | NeoPixel DIN | 2 (power the pixel from 3.3 V) |
-| SDI (MOSI) | 11 | | spare | 14, 17, 21 |
+| LCD_RS (DC) | 38 | | NeoPixel DIN | 17 (power the pixel from 3.3 V) |
+| SDI (MOSI) | 11 | | spare | 2, 14, 21 |
 | SCK | 13 | | | |
 | LED (backlight) | 42 | | | |
 | SDO (MISO) | 10 | | | |

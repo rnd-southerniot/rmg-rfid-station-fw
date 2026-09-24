@@ -28,8 +28,8 @@ ASSUMED until the Phase-1 gate confirms it).
 | SD card | — | MSP2834 `SD_CS` | unwired |
 | RFID RX | 18 | reader `TX` | UART1 **115200 8N1** (PROVEN 2026-09-24), receive-only. Frame: `02` + ASCII hex digits + `0D 0A 03`, e.g. `02 "4050B047" 0D 0A 03`; no type byte, no checksum. Reader TX idle level: **UNKNOWN, not metered** (wired directly by the operator); > 3.6 V would need a divider (1.8 kΩ series / 3.3 kΩ to GND) or a BSS138 shifter. |
 | Buzzer | 1 | piezo | LEDC channel 0 / timer 0 |
-| Status LED | 2 | NeoPixel `DIN` | one WS2812-type pixel via the core's `neopixelWrite()` (RMT). Power the pixel from **3.3 V** (Arif has run WS2812B from 3.3 V on earlier benches — operator-reported; the datasheet's 3.5 V VIH only applies at 5 V supply). 330 Ω in series with DIN, 100 nF across the pixel. |
-| spare | 14, 17, 21 | — | 14 and 21 are ADC-capable (AIN1/AIN0); keep them free for analog use |
+| Status LED | 17 | NeoPixel `DIN` | one WS2812-type pixel via the core's `neopixelWrite()` (RMT, any GPIO). Wired to GPIO17 by Arif 2026-09-24 (GPIO2 was the original plan). GPIO17 is the S3 IOMUX `U1TXD`, but UART1 never claims it: `RFID_UART_TX` is -1 and core 2.0.16 attaches a TX pin only when ≥ 0 (`esp32-hal-uart.c:153`). Power the pixel from **3.3 V** (Arif has run WS2812B from 3.3 V on earlier benches — operator-reported; the datasheet's 3.5 V VIH only applies at 5 V supply). 330 Ω in series with DIN, 100 nF across the pixel. |
+| spare | 2, 14, 21 | — | 14 and 21 are ADC-capable (AIN1/AIN0); keep them free for analog use. 2 was the planned NeoPixel pin, now unused |
 
 ### Module-internal (do not wire, do not reuse)
 

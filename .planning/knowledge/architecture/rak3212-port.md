@@ -13,7 +13,7 @@ Decisions taken 2026-09-24 (Arif): LoRaWAN = **offline fallback for scan events 
 - Backends chosen by `build_src_filter`: `rfid_mfrc522.cpp` (esp32dev) vs `rfid_uart.cpp` +
   `rfid_frame.cpp` (rak3212, receive-only on GPIO18); `lora_link.cpp`, `lora_payload.cpp`,
   `serial_console.cpp` rak3212 only. Status LED backend by `LED_BACKEND_RGB` / `LED_BACKEND_NEOPIXEL`
-  inside `led_buzzer.cpp` (NeoPixel on GPIO2 via the core's `neopixelWrite()`, no library).
+  inside `led_buzzer.cpp` (NeoPixel on GPIO17 — Arif's wiring 2026-09-24, was planned on GPIO2 — via the core's `neopixelWrite()`, no library).
 - `lora_link.h` / `serial_console.h` provide **inline no-op stubs** when `BOARD_HAS_LORA` /
   `BOARD_HAS_CONSOLE` are 0, so `main.cpp` has no `#ifdef` for them (only the POST line and the
   PSRAM log are conditional).

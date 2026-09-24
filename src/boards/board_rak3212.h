@@ -39,13 +39,17 @@
 #define BUZZER_PIN      1
 #define BUZZER_FREQ_HZ  2700
 
-// ── Status LED: one WS2812-type NeoPixel (data on GPIO2, driven by the core's neopixelWrite) ──
+// ── Status LED: one WS2812-type NeoPixel (data on GPIO17, driven by the core's neopixelWrite) ──
+// Wired to GPIO17 by Arif (2026-09-24; GPIO2 was the original plan). GPIO17 is the S3's IOMUX
+// U1TXD, but the reader UART never claims it: RFID_UART_TX is -1 and core 2.0.16 attaches a TX
+// pin only when it is >= 0 (esp32-hal-uart.c:153, :256). neopixelWrite() uses RMT via the
+// GPIO matrix, so any free pin works.
 // Pixel powered from 3.3 V: Arif has run WS2812B this way before (operator-reported, 2026-09-24),
 // which also keeps the 3.3 V data signal in spec. 330 R in series with data, 100 nF across the pixel.
 // Brightness starts high per bench rule (dim defaults waste bench cycles); lower after Phase 1.
 #define LED_BACKEND_NEOPIXEL  1
 #define LED_NAME              "NeoPixel"   // POST label: "LED (NeoPixel)"
-#define NEOPIXEL_PIN          2
+#define NEOPIXEL_PIN          17
 #define NEOPIXEL_BRIGHTNESS   255
 
 // ── LCD self-test: read the ILI9341 ID over MISO (GPIO10) at boot; the module's SDO comes

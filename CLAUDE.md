@@ -38,9 +38,9 @@ WiFi/HTTP stays primary for claim, mapping, login, heartbeat and events.
 | Touch CTP_SDA / SCL / RST | 9 / 40 / 41 | FT6336G @0x38, polled (INT unwired) |
 | RFID reader TX → | 18 | UART1 9600 8N1, **receive-only** (`RFID_UART_TX -1`) |
 | Buzzer | 1 | LEDC ch 0 |
-| NeoPixel DIN | 2 | one WS2812-type pixel, core `neopixelWrite()`; 3.3 V supply works (Arif, prior bench) |
+| NeoPixel DIN | 17 | one WS2812-type pixel, core `neopixelWrite()`; 3.3 V supply works (Arif, prior bench). Wired to 17 by Arif 2026-09-24 (was planned on 2); UART1 leaves 17 alone because `RFID_UART_TX` is -1 |
 | SX1262 (internal) | 7/5/3/6/8/47/48 (+4) | NSS/SCK/MISO/MOSI/NRESET/DIO1/BUSY; DIO2 drives the RF switch |
-| spare | 14, 17, 21 | 14/21 are ADC-capable |
+| spare | 2, 14, 21 | 14/21 are ADC-capable |
 | reserved | 0, 43/44, 45/46, 19/20 | BOOT, UART0 (fallback console), strapping, USB |
 
 ### esp32dev
@@ -93,8 +93,8 @@ tools/bench/serial_capture.py --seconds 15 --send ping --after 4   # safe captur
 
 | Resource | Budget (domain) | esp32dev (2026-09-24) | rak3212 (2026-09-24) |
 |---|---|---|---|
-| Flash (app partition) | ≤ 60 % | **82.7 %** (1084421 / 1310720) — pre-existing exception: 1.25 MB OTA slots on a 4 MB part; any growth here needs a size justification | 16.4 % (1072797 / 6553600) |
-| RAM (static) | ≤ 70 % | 15.9 % (52152 B) | 16.6 % (54312 B) |
+| Flash (app partition) | ≤ 60 % | **82.7 %** (1084497 / 1310720) — pre-existing exception: 1.25 MB OTA slots on a 4 MB part; any growth here needs a size justification | 16.4 % (1075705 / 6553600) |
+| RAM (static) | ≤ 70 % | 15.9 % (52160 B) | 16.6 % (54456 B) |
 | LoRa task stack | 8 KB, high-water > 1.5 KB free | — | measure with `lora show` (Phase 4) |
 | Loop latency | max gap < 50 ms (`sys loop`) | — | measure (Phase 5) |
 | esp32dev regression | RAM/Flash delta ≤ 2 KB vs `pre-rak3212`, 0 `src/` warnings | +32 B / +1988 B | — |
@@ -104,7 +104,7 @@ tools/bench/serial_capture.py --seconds 15 --send ping --after 4   # safe captur
 | Phase | Goal | Gate (exact expectation) | Rollback |
 |---|---|---|---|
 | 0 ✅ | multi-env build, pure modules + tests, docs | `pio test -e native` → `28 test cases: 28 succeeded`; codec `10/10`; esp32dev sizes identical after restructure | `git reset --hard pre-rak3212` |
-| 1 ✅ (pixel/beep visual pending) | board bring-up: USB CDC, PSRAM, NeoPixel, buzzer | `pio device list` shows `303A:1001` ✓; banner `[P1] RAK3212 bring-up chip=ESP32-S3 rev=0 cores=2 flash=16777216 psram=8386295 … mac=3C:DC:75:6F:85:DC deveui=3CDC75FFFE6F85DC` ✓ (PSRAM = allocator-usable size of 8 MiB); `ping` → `echo: ping` ✓; pixel cycles R/G/B ~1 Hz + one beep = operator check | revert commit |
+| 1 ✅ (pixel on GPIO17 since 2026-09-24; R/G/B + beep visual pending) | board bring-up: USB CDC, PSRAM, NeoPixel, buzzer | `pio device list` shows `303A:1001` ✓; banner `[P1] RAK3212 bring-up chip=ESP32-S3 rev=0 cores=2 flash=16777216 psram=8386295 … mac=3C:DC:75:6F:85:DC deveui=3CDC75FFFE6F85DC` ✓ (PSRAM = allocator-usable size of 8 MiB); `ping` → `echo: ping` ✓; pixel cycles R/G/B ~1 Hz + one beep = operator check | revert commit |
 | 2 ✅ | MSP2834 display + FT6336G touch | `[Display] ILI9341 RDID4 = 0x9341 (OK)` ✓ (bus/wiring/HSPI PROVEN), `[Touch] FT6336 initialized` + `Touch=OK` ✓, `sys info` → `post LCD=OK(id 0x9341) … Touch=OK LoRa=OK` ✓; bonus `[LoRa] SX1262 up (AS923, TCXO 1.8V, DIO2 RF switch)` ✓ with no TX (AppKey zero). Operator 2026-09-24: screen confirmed; `ui touch on` → `touch  75,160 -> PASS`, `touch 243,148 -> FAIL` (orientation mapping unchanged) | revert |
 | **3 ▶** (frame PROVEN, byte order + hold pending) | reader frame discovery + parser config | `rfid raw on` at 115200: `02 34 30 35 30 42 30 34 37 0D 0A 03` = ASCII "4050B047" ✓ (parser ASCII mode, 8 new tests); still to do: `[Main] Scanned UID: X` **equals the backend's enrolled hex** for the same badge (direct or reversed → `RFID_UART_REVERSE_MIFARE_UID`), reader TX level metered. Hold test ✓: one frame per presentation, none while held 5 s | revert; defaults stay vendor values |
 | 4 | SX1262 + OTAA join + heartbeat decoded | `[LoRa] SX1262 up (AS923, TCXO 1.8V, DIO2 RF switch)`; `[LoRa] JOINED AS923 (new session); uplink DR3 (SF9)` < 10 s; `lora hb` → `uplink OK fPort=11 len=20`; ChirpStack shows `object.type="heartbeat"`; reboot → `session restored (no re-join)` | `lora clear-session yes`; revert |
@@ -134,6 +134,7 @@ behaviour (one frame per card entry, no re-emit while held). Still open in `boar
 ## 9. State
 
 <!-- 2026-09-24: Plan approved (LoRa = offline fallback for scans, UART reader, MSP2834 touch). Phase 0 done on feat/rak3212-port (tag pre-rak3212 = ec547a4): multi-env platformio.ini, board headers, rfid_frame + lora_payload (28 native tests), ChirpStack codec (10 vectors), rfid_uart, lora_link (RadioLib 7.7.1 task), serial console, bring-up sketch, main.cpp fallback + offline mode + E_<epoch>_<seq> ids, docs. esp32dev regression +32 B RAM / +1988 B flash, 0 src warnings. -->
+<!-- 2026-09-24 NeoPixel wired: Arif connected the pixel DIN to GPIO17 (not the planned GPIO2). NEOPIXEL_PIN 2 -> 17 in board_rak3212.h; PIN_MAP/CLAUDE/README/knowledge/memory updated (spare now 2, 14, 21). PROVEN safe: GPIO17 is the S3 IOMUX U1TXD, but core 2.0.16 attaches a UART TX pin only when >= 0 (esp32-hal-uart.c:153, :256) and RFID_UART_TX is -1, so UART1 never touches it. rak3212-bringup flashed and running: banner + `ping` echo PASS again on GPIO17; R/G/B cycle + beep = Arif's visual (the sketch is LEFT RUNNING for that; `scripts/flash.sh rak3212` puts the app back). esp32dev 52160 B RAM / 1084497 B flash (header not compiled there; delta vs the §6 figure predates this change). ChirpStack pre-check (read-only): a568b-gw-108 ONLINE (last seen 08:41Z), DevEUI 3cdc75fffe6f85dc NotFound -> Phase 4 provisioning still awaits Arif's go. -->
 <!-- 2026-09-24 WRAP-UP: project skills (.claude/skills: rak3212-bench, rfid-uart-reader-discovery, lorawan-fallback-contract, multi-board-build), docs/RUNBOOK.md + docs/ARCHITECTURE.md, knowledge entries (gotchas/reader-and-display-bench, api-contracts/lorawan-payload, devops/knowledge-mcp, architecture/PLAN-rak3212-port copy), sessions/2026-09-24-phase4-HANDOFF.md. Knowledge MCP upstream rmg-rfid-station-knowledge deployed on the gateway (127.0.0.1:8020, prefix rmgrfid, 21st upstream, proxy-config backup .bak-20260924-044442-rmgrfid), verified: check_upstream_health 20/20 healthy, get_handoff + search return content. Resync with tools/sync-knowledge-mcp.sh. NEXT SESSION: start from get_handoff / sessions/2026-09-24-phase4-HANDOFF.md (Phase 4 needs Arif's "go" for 10.10.8.140 provisioning, the antenna, and the badge byte-order answer). -->
 <!-- 2026-09-24 Phase 3 (bench): reader wired to GPIO18 (line idles HIGH, POST RFID=OK). Raw dump had to move into the console service (app polls the reader only in LOGIN/READY). Baud sweep: garbage of consistent shape at 9600/38400/57600; at 115200 clean frames 02 34 30 35 30 42 30 34 37 0D 0A 03 = ASCII "4050B047" CR LF ETX. Parser gained an ASCII mode (default for rak3212), board header set to 115200/ASCII. Open: UID byte order vs the ETS enrolment for that badge, re-emit period while held, reader TX level (never metered — operator wired it directly). -->
 <!-- 2026-09-24 Phase 2 PASS closed by Arif: screen confirmed (SELF-TEST, boot screens, orientation), touch taps 75,160 -> PASS and 243,148 -> FAIL. Next: Phase 3, needs the reader on 5 V with its TX level measured before it meets GPIO18. -->
