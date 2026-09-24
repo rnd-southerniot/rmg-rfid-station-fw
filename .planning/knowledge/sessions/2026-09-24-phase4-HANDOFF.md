@@ -10,7 +10,7 @@ Repo `rnd-southerniot/app-rmg-rfid-station-fw`, branch `feat/rak3212-port` (not 
 | Phase | State |
 |---|---|
 | 0 host | PASS — 36 native tests, 10 codec vectors, esp32dev sizes identical |
-| 1 bring-up | PASS — native USB `303A:1001`, PSRAM 8 MB, DevEUI from MAC; NeoPixel now wired to **GPIO17** (pin changed from 2 on 2026-09-24, bring-up sketch left running for the R/G/B + beep visual) |
+| 1 bring-up | PASS — native USB `303A:1001`, PSRAM 8 MB, DevEUI from MAC; NeoPixel wired to **GPIO17** (J5-9) on 2026-09-24 but **does not light**; `pix` diagnostics in the bring-up sketch PROVE the pin is routed (RMT sig 81) and drives (pad reads back 1/0) — physical checks pending: pixel VDD vs 3.3 V data, DIN/DOUT, pixel type, wire |
 | 2 display/touch | PASS — ILI9341 ID 0x9341, FT6336G OK, touch hit-boxes confirmed by Arif |
 | 3 reader | frame PASS — 115200 ASCII `02 "4050B047" 0D 0A 03`, one frame per card entry; **byte order vs ETS enrolment pending**; reader TX level UNKNOWN |
 | 4 LoRa | radio detected (`SX1262 up`, no TX); **provisioning + join not done** |

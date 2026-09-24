@@ -14,6 +14,7 @@ Pins: `docs/PIN_MAP.md`. Contract and state: `CLAUDE.md`.
 ```bash
 scripts/flash.sh rak3212            # pio build + esptool write with --connect-attempts 30
 scripts/flash.sh rak3212-bringup    # Phase-1 blink/USB/PSRAM sketch
+# bring-up console: `pix status|pad|gpio|core|rmt|bang|pin <n>|rgb r g b|off` — proves the pixel pin is routed/driven (2026-09-24)
 ```
 
 Do not use `pio run -t upload` for this board: it failed twice with `No serial data received`
