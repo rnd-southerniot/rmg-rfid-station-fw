@@ -8,7 +8,7 @@ here must land in those files in the same commit.
 
 RAK3112 module: ESP32-S3, 16 MB quad flash, 8 MB octal PSRAM, Semtech SX1262 wired inside the
 module. 3.3 V logic, **not 5 V tolerant**. Native USB-C (USB-Serial-JTAG, VID:PID `303A:1001`,
-ASSUMED until the Phase-1 gate confirms it).
+PROVEN at the Phase-1 gate 2026-09-24).
 
 ### Header GPIOs (13 used, 3 spare)
 

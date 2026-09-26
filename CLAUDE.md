@@ -23,7 +23,7 @@ WiFi/HTTP stays primary for claim, mapping, login, heartbeat and events.
 | MCU | ESP32 (Xtensa LX6, 240 MHz) | ESP32-S3 in RAK3112 module (LX7 dual-core, 240 MHz) |
 | Memory | 4 MB flash, 320 KB SRAM | 16 MB quad flash, 8 MB **octal** PSRAM (`qio_opi`), 512 KB SRAM |
 | Radio | WiFi | WiFi + Semtech SX1262 (module-internal, RadioLib **7.7.1** exact) |
-| USB | CP2102N bridge (`/dev/cu.usbserial-*`) | native USB-Serial-JTAG `303A:1001` (`/dev/cu.usbmodem*`) — ASSUMED until Phase 1 |
+| USB | CP2102N bridge (`/dev/cu.usbserial-*`) | native USB-Serial-JTAG `303A:1001` (`/dev/cu.usbmodem*`) — PROVEN Phase 1 (2026-09-24, `pio device list`) |
 | Partition | `default.csv` (app0/app1 1.25 MB) | `default_16MB.csv` (app0/app1 6.25 MB, nvs 20 KB) |
 | Toolchain | PlatformIO `espressif32@6.7.0` = Arduino core **2.0.16** (`ledcSetup/ledcAttachPin` API), TFT_eSPI 2.5.43, ArduinoJson 7 | same + RadioLib 7.7.1 |
 | Host tests | `platform = native`, Unity 2.6.1 (`pio test -e native`) | |
@@ -37,7 +37,7 @@ WiFi/HTTP stays primary for claim, mapping, login, heartbeat and events.
 | LCD SCLK / MOSI / MISO / CS / RS(DC) / RST | 13 / 11 / 10 / 12 / 38 / 39 | SPI3, TFT_eSPI `USE_HSPI_PORT=1` (mandatory on S3) |
 | LCD backlight | 42 | `TFT_BL=42` HIGH — Phase-2 schematic gate (logic input vs raw 80 mA LED) |
 | Touch CTP_SDA / SCL / RST | 9 / 40 / 41 | FT6336G @0x38, polled (INT unwired) |
-| RFID reader TX → | 18 | UART1 9600 8N1, **receive-only** (`RFID_UART_TX -1`) |
+| RFID reader TX → | 18 | UART1 **115200 8N1 ASCII** (PROVEN Phase 3), **receive-only** (`RFID_UART_TX -1`) |
 | Buzzer | 1 | LEDC ch 0 |
 | NeoPixel DIN | 17 | one WS2812-type pixel, core `neopixelWrite()`; 3.3 V supply works (Arif, prior bench). Wired to 17 by Arif 2026-09-24 (was planned on 2); UART1 leaves 17 alone because `RFID_UART_TX` is -1 |
 | SX1262 (internal) | 7/5/3/6/8/47/48 (+4) | NSS/SCK/MISO/MOSI/NRESET/DIO1/BUSY; DIO2 drives the RF switch |
@@ -84,7 +84,7 @@ scripts/flash.sh rak3212            # build + esptool flash with 30 connect atte
 scripts/flash.sh rak3212-bringup    # Phase 1 sketch; console: ping, pix status|pad|gpio|core|rmt|bang|pin <n>|rgb r g b|inv on|off|off
 tools/bench/serial_capture.py --reset --seconds 36 --send "sys info" --after 30   # boot log + POST results
 
-pio test -e native                      # 28 Unity tests (frame parser, LoRa payload)
+pio test -e native                      # 36 Unity tests (frame parser incl. ASCII mode, LoRa payload)
 node tools/chirpstack/codec_test.js     # 10 codec vectors
 pio device list                         # rak3212 → VID:PID=303A:1001
 tools/bench/serial_capture.py --seconds 15 --send ping --after 4   # safe capture (no chip reset)
@@ -104,7 +104,7 @@ tools/bench/serial_capture.py --seconds 15 --send ping --after 4   # safe captur
 
 | Phase | Goal | Gate (exact expectation) | Rollback |
 |---|---|---|---|
-| 0 ✅ | multi-env build, pure modules + tests, docs | `pio test -e native` → `28 test cases: 28 succeeded`; codec `10/10`; esp32dev sizes identical after restructure | `git reset --hard pre-rak3212` |
+| 0 ✅ | multi-env build, pure modules + tests, docs | `pio test -e native` → `28 test cases: 28 succeeded` (36/36 since the Phase-3 ASCII tests, re-run 2026-09-27); codec `10/10`; esp32dev sizes identical after restructure | `git reset --hard pre-rak3212` |
 | 1 ✅ (NeoPixel **DEFERRED** 2026-09-27: pin/driver PROVEN with `pix` diagnostics, pixel dark at 5 V and 3.3 V, hardware side unresolved) | board bring-up: USB CDC, PSRAM, NeoPixel, buzzer | `pio device list` shows `303A:1001` ✓; banner `[P1] RAK3212 bring-up chip=ESP32-S3 rev=0 cores=2 flash=16777216 psram=8386295 … mac=3C:DC:75:6F:85:DC deveui=3CDC75FFFE6F85DC` ✓ (PSRAM = allocator-usable size of 8 MiB); `ping` → `echo: ping` ✓; pixel cycles R/G/B ~1 Hz + one beep = operator check | revert commit |
 | 2 ✅ | MSP2834 display + FT6336G touch | `[Display] ILI9341 RDID4 = 0x9341 (OK)` ✓ (bus/wiring/HSPI PROVEN), `[Touch] FT6336 initialized` + `Touch=OK` ✓, `sys info` → `post LCD=OK(id 0x9341) … Touch=OK LoRa=OK` ✓; bonus `[LoRa] SX1262 up (AS923, TCXO 1.8V, DIO2 RF switch)` ✓ with no TX (AppKey zero). Operator 2026-09-24: screen confirmed; `ui touch on` → `touch  75,160 -> PASS`, `touch 243,148 -> FAIL` (orientation mapping unchanged) | revert |
 | **3 ▶** (frame PROVEN, byte order + hold pending) | reader frame discovery + parser config | `rfid raw on` at 115200: `02 34 30 35 30 42 30 34 37 0D 0A 03` = ASCII "4050B047" ✓ (parser ASCII mode, 8 new tests); still to do: `[Main] Scanned UID: X` **equals the backend's enrolled hex** for the same badge (direct or reversed → `RFID_UART_REVERSE_MIFARE_UID`), reader TX level metered. Hold test ✓: one frame per presentation, none while held 5 s | revert; defaults stay vendor values |
