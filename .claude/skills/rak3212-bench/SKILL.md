@@ -49,7 +49,7 @@ RTS before DTR. `--reset` resets once on purpose and reopens once, safely.
 
 | Phase | PASS looks like |
 |---|---|
-| 1 bring-up | `[P1] RAK3212 bring-up chip=ESP32-S3 … flash=16777216 psram=8386295 … deveui=3CDC75FFFE6F85DC`, `ping` → `echo: ping` |
+| 1 bring-up | `[P1] RAK3212 bring-up chip=ESP32-S3 … flash=16777216 psram=8386295 … deveui=3CDC75FFFE6F85DC`, `ping` → `echo: ping`; NeoPixel on GPIO17 DEFERRED 2026-09-27 (dark; `pix status` → `out_sel=81 oe=1`, `pix pad` → `PAD DRIVES OK` prove the pin) |
 | 2 display/touch | `[Display] ILI9341 RDID4 = 0x9341 (OK)`, `[Touch] FT6336 initialized`, `post LCD=OK(id 0x9341) … Touch=OK`; `ui touch on` → `touch  75,160 -> PASS`, `touch 243,148 -> FAIL` |
 | 3 reader | `[RFID] UART1 reader on RX=18 @115200 8N1 (ASCII frames), idle line HIGH`, `rfid raw on` → `[RFID raw] … 02 34 30 35 30 42 30 34 37 0D 0A 03` then `[RFID] frame ok NEW … uid=4050B047` |
 | 4 LoRa | `[LoRa] SX1262 up (AS923, TCXO 1.8V, DIO2 RF switch)`, `[LoRa] JOINED AS923 (new session); uplink DR3 (SF9)`, `lora hb` → `[LoRa] uplink OK fPort=11 len=20`, decoded heartbeat in ChirpStack |

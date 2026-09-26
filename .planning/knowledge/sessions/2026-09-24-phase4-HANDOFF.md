@@ -1,5 +1,7 @@
 # HANDOFF — next session starts at Phase 4 (LoRaWAN join) · written 2026-09-24
 
+> **SUPERSEDED by `2026-09-27-HANDOFF.md`** (NeoPixel deferred, branch pushed). Kept for history.
+
 Repo `rnd-southerniot/app-rmg-rfid-station-fw`, branch `feat/rak3212-port` (not pushed), tag
 `pre-rak3212` = the state before the port. Contract: `CLAUDE.md`. Plan of record:
 `.planning/knowledge/architecture/PLAN-rak3212-port.md`. Bench board: RAK3212 on
